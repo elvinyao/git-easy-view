@@ -49,6 +49,13 @@ def test_branches_list_live_heads_and_recreated_name(history):
     assert {branch.name: branch.oid for branch in service.branches()}["topic"] == new_oid
 
 
+def test_branches_preserve_unicode_line_separator_in_name(history):
+    path, base = history
+    name = "feature/first\u2028second"
+    git(path, "branch", name)
+    assert {branch.name: branch.oid for branch in GitService(path).branches()}[name] == base
+
+
 def test_compare_direction_and_states_on_real_history(history):
     path, base = history
     git(path, "checkout", "-b", "feature")
@@ -148,6 +155,13 @@ def test_commits_are_source_unique_and_limited(history):
     assert [item.oid for item in entries] == [second]
     assert service.commits(base, second) == []
     assert [item.oid for item in service.commits(second, base)] == [second, first]
+
+
+def test_commits_preserve_unicode_line_separator_in_subject(history):
+    path, base = history
+    subject = "fix UI\u2028layout"
+    oid = commit(path, subject)
+    assert GitService(path).commits(oid, base)[0].subject == subject
 
 
 def test_commits_does_not_execute_configured_signature_verifier(history):

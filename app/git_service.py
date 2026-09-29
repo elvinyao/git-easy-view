@@ -189,7 +189,9 @@ class GitService:
             "--format=%(refname:strip=2)%00%(objectname)%00%(committerdate:iso8601-strict)",
             "refs/heads",
         )
-        lines = output.splitlines()
+        # Git separates records with literal LF. Python splitlines() also
+        # splits legal Unicode branch characters such as U+2028.
+        lines = [line for line in output.split("\n") if line]
         if len(lines) > MAX_BRANCHES:
             raise GitOutputLimit("Branch count limit exceeded")
         branches = []
@@ -227,7 +229,9 @@ class GitService:
             "--format=%H%x00%an%x00%aI%x00%s", source, "--not", target,
         )
         commits = []
-        for line in output.splitlines():
+        for line in output.split("\n"):
+            if not line:
+                continue
             oid, author, timestamp, subject = line.split("\x00", 3)
             commits.append(CommitInfo(oid, author, datetime.fromisoformat(timestamp), subject))
         return commits
