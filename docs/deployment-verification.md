@@ -1,6 +1,6 @@
 # 部署验收记录 · 2026-09-29
 
-所有执行、安装、构建、服务和浏览器操作均经 `bash .agent/run.sh` 进入 Docker。运行环境：Python 3.13.15 / Linux aarch64，PostgreSQL 17，Redis 7.4，RQ 2.12.0；Playwright 1.63.0 / Chromium 153.0.8010.12。父任务负责最终独立规格与质量审查。
+所有执行、安装、构建、服务和浏览器操作均经 `bash .agent/run.sh` 进入 Docker。运行环境：Python 3.13.15 / Linux aarch64，PostgreSQL 17，Redis 7.4，RQ 2.12.0；Playwright 1.63.0 / Chromium 153.0.8010.12。最终独立需求与代码质量审查均已通过，实现提交为 `1b53eee`。
 
 ## 已执行检查
 
@@ -16,6 +16,8 @@
 | 交互终端 | 普通 runner、Compose tools 容器内 `sys.stdin.isatty()/stdout.isatty()` | 两条路径均为 True/True；非 TTY 自动化继续可用 |
 
 所有 pytest 运行有一个上游 Starlette/httpx 弃用警告，不影响通过。未为此变更依赖范围。
+
+最终需求复核独立运行真实服务、demo 与 health 检查，7 passed（6.34s）；最终质量审查独立运行身份、权限与就绪检查，26 passed（5.99s），未发现待修问题。父任务另行验证已安装 wheel 的页面资源与数据库就绪检查通过，并完成截图视觉检查。功能分支 `feat/team-dashboard` 和本地演示服务保留供使用。
 
 ## 真实服务覆盖
 
