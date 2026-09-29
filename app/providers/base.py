@@ -169,7 +169,8 @@ class Provider:
         except ValueError as exc:
             raise ProviderError("Unsafe provider pagination URL") from exc
         api = urlsplit(self.api_root)
-        if (parsed.scheme != "https" or parsed.hostname != api.hostname or port != api.port
+        if (parsed.scheme != "https" or parsed.hostname != api.hostname
+                or (port if port is not None else 443) != (api.port if api.port is not None else 443)
                 or parsed.username or parsed.password or parsed.fragment):
             raise ProviderError("Unsafe provider pagination URL")
         _safe_path(parsed.path)

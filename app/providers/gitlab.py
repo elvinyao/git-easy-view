@@ -89,5 +89,5 @@ class GitLabProvider(Provider):
                   optional_identity(raw.get("source_project_id")), optional_string(raw.get("source_branch")),
                   optional_string(raw.get("sha")), optional_identity(raw.get("target_project_id")),
                   optional_string(raw.get("target_branch")),
-                  optional_string(raw.get("merge_commit_sha")) if state == "merged" else None,
+                  optional_string(raw.get("merge_commit_sha") or raw.get("squash_commit_sha")) if state == "merged" else None,
                   timestamp(raw.get("updated_at")), merged_at)

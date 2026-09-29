@@ -353,3 +353,37 @@ def test_encoded_path_traversal_is_rejected_for_remote_urls():
         with pytest.raises(errors.ProviderError):
             errors.validate_remote_url("https://git.example" + path, "https://git.example/corp")
     assert errors.validate_remote_url("https://git.example/corp/group%2Fsub/repo.git", "https://git.example/corp")
+
+
+def test_gitlab_squash_commit_is_merge_evidence_only_after_merge():
+    def respond(req):
+        state = req.url.params.get("state")
+        if state == "opened":
+            return httpx.Response(200, json=[{"id": 81, "title": "still open", "web_url": "https://gitlab.com/team/repo/-/merge_requests/81", "state": "opened", "sha": "source", "merge_commit_sha": "preview", "squash_commit_sha": "preview-squash"}])
+        if state == "locked":
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=[{"id": 82, "title": "squashed", "web_url": "https://gitlab.com/team/repo/-/merge_requests/82", "state": "merged", "sha": "source", "merge_commit_sha": None, "squash_commit_sha": "squash-result"}])
+    prs = provider("gitlab", "https://gitlab.com", respond).pull_requests("1", None)
+    assert [(pr.external_id, pr.merge_oid) for pr in prs] == [("81", None), ("82", "squash-result")]
+
+
+def test_github_explicit_default_port_is_same_api_origin():
+    seen = []
+    def respond(req):
+        seen.append(str(req.url))
+        if req.url.params.get("page") == "2":
+            return httpx.Response(200, json=[gh_repo(2, "org/second")])
+        return httpx.Response(200, headers={"Link": '<https://api.github.com:443/user/repos?page=2>; rel="next"'}, json=[gh_repo()])
+    assert [repo.external_id for repo in provider("github", "https://github.com", respond).repositories()] == ["1", "2"]
+    assert len(seen) == 2
+
+
+def test_github_nondefault_port_in_pagination_is_rejected():
+    errors = import_module("app.providers.base")
+    seen = []
+    def respond(req):
+        seen.append(str(req.url))
+        return httpx.Response(200, headers={"Link": '<https://api.github.com:444/user/repos?page=2>; rel="next"'}, json=[gh_repo()])
+    with pytest.raises(errors.ProviderError):
+        provider("github", "https://github.com", respond).repositories()
+    assert len(seen) == 1
