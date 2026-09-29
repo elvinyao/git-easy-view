@@ -137,20 +137,25 @@ def connection_fingerprint(connection):
     )
 
 
-def checked_connection(session, connection_id, captured):
-    # Mirror the worker identity guard. SQLite needs an explicit writer lock.
+def locked_connection(session, connection_id):
+    """Serialize connection edits with import publication and credential checks."""
+    # SQLite ignores FOR UPDATE, so take its writer lock before reloading.
     if session.bind.dialect.name == "sqlite":
         session.execute(
             update(PlatformConnection)
             .where(PlatformConnection.id == connection_id)
             .values(auth_disabled=PlatformConnection.auth_disabled)
         )
-    fresh = session.scalar(
+    return session.scalar(
         select(PlatformConnection)
         .where(PlatformConnection.id == connection_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+
+
+def checked_connection(session, connection_id, captured):
+    fresh = locked_connection(session, connection_id)
     if fresh is None or connection_fingerprint(fresh) != captured:
         session.rollback()
         raise HTTPException(409, "连接在请求期间已变更，请重新检查或重新选择仓库。")
@@ -336,10 +341,12 @@ def save_connection(
     session: Session = Depends(get_session),
 ):
     connection = (
-        get_or_404(session, PlatformConnection, connection_id)
+        locked_connection(session, connection_id)
         if connection_id
         else PlatformConnection(auth_disabled=True)
     )
+    if connection is None:
+        raise HTTPException(404)
     name, kind, base = (
         text_field(form, "name"),
         text_field(form, "kind", 32),

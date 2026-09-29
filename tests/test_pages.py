@@ -896,3 +896,159 @@ def test_sync_status_batches_connections_and_shows_threshold_floor(client, app, 
         "60 秒（同步间隔的 2 倍，最少 60 秒）"
         in client.get(f"/repositories/{pages['repo']}/branches").text
     )
+
+
+def test_connection_edit_serializes_against_first_import(
+    client, app, admin_pages, monkeypatch
+):
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+    from threading import Event
+    from fastapi.testclient import TestClient
+
+    with Session(app.state.engine) as s:
+        connection = PlatformConnection(
+            name="first-import", kind="github", base_url="https://github.com"
+        )
+        s.add(connection)
+        s.commit()
+        cid = connection.id
+    encrypt_entered, release_edit, import_metadata_read = Event(), Event(), Event()
+    original_encrypt = type(app.state.settings).encrypt_token
+
+    def paused_encrypt(settings, token):
+        if token == "rotated-token":
+            encrypt_entered.set()
+            assert release_edit.wait(5), "test did not release connection editor"
+        return original_encrypt(settings, token)
+
+    class ObservedProvider(ProviderFixture):
+        def repository(self, external_id):
+            record = super().repository(external_id)
+            import_metadata_read.set()
+            return record
+
+    monkeypatch.setattr(type(app.state.settings), "encrypt_token", paused_encrypt)
+    app.state.provider_factory = ObservedProvider
+    csrf = csrf_from(client.get("/"))
+    cookies = dict(client.cookies)
+
+    def post(path, fields):
+        with TestClient(app, cookies=cookies) as separate_client:
+            return separate_client.post(
+                path, data={**fields, "csrf_token": csrf}, follow_redirects=False
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        edit = pool.submit(
+            post,
+            f"/admin/connections/{cid}",
+            dict(
+                name="rotated",
+                kind="github",
+                base_url="https://new.example",
+                token="rotated-token",
+            ),
+        )
+        try:
+            assert encrypt_entered.wait(5)
+            importing = pool.submit(
+                post,
+                "/admin/repositories/import",
+                dict(
+                    connection_id=cid,
+                    project_id=admin_pages["project"],
+                    external_ids=["20"],
+                ),
+            )
+            assert import_metadata_read.wait(5)
+            try:
+                importing.result(timeout=1)
+            except TimeoutError:
+                pass  # Correct implementation waits for the editor's connection lock.
+        finally:
+            release_edit.set()
+        assert edit.result(timeout=5).status_code == 303
+        assert importing.result(timeout=5).status_code == 409
+    with Session(app.state.engine) as s:
+        assert s.get(PlatformConnection, cid).base_url == "https://new.example"
+        assert (
+            s.scalar(select(Repository.id).where(Repository.connection_id == cid))
+            is None
+        )
+
+
+def test_connection_edit_rechecks_imported_repositories_after_lock_wait(
+    client, app, admin_pages, monkeypatch
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from fastapi.testclient import TestClient
+    from sqlalchemy import update
+
+    with Session(app.state.engine) as s:
+        connection = PlatformConnection(
+            name="locked-import", kind="github", base_url="https://github.com"
+        )
+        s.add(connection)
+        s.commit()
+        cid = connection.id
+    encrypt_reached = Event()
+    original_encrypt = type(app.state.settings).encrypt_token
+
+    def observed_encrypt(settings, token):
+        if token == "rotated-token":
+            encrypt_reached.set()
+        return original_encrypt(settings, token)
+
+    monkeypatch.setattr(type(app.state.settings), "encrypt_token", observed_encrypt)
+    csrf = csrf_from(client.get("/"))
+    cookies = dict(client.cookies)
+
+    def save():
+        with TestClient(app, cookies=cookies) as separate_client:
+            return separate_client.post(
+                f"/admin/connections/{cid}",
+                data=dict(
+                    name="rotated",
+                    kind="github",
+                    base_url="https://new.example",
+                    token="rotated-token",
+                    csrf_token=csrf,
+                ),
+                follow_redirects=False,
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with Session(app.state.engine) as importing:
+            # Match the import publication transaction: connection locked before
+            # the first repository insert, then published together on commit.
+            importing.execute(
+                update(PlatformConnection)
+                .where(PlatformConnection.id == cid)
+                .values(auth_disabled=PlatformConnection.auth_disabled)
+            )
+            importing.add(
+                Repository(
+                    connection_id=cid,
+                    external_id="20",
+                    name="repo",
+                    full_name="team/repo",
+                    web_url="https://github.com/team/repo",
+                    clone_url="https://github.com/team/repo.git",
+                )
+            )
+            importing.flush()
+            editing = pool.submit(save)
+            encrypt_reached.wait(
+                1
+            )  # Before the fix, the stale has_repos check reaches encryption.
+            importing.commit()
+        assert editing.result(timeout=5).status_code == 400
+    with Session(app.state.engine) as s:
+        assert s.get(PlatformConnection, cid).base_url == "https://github.com"
+        assert (
+            s.scalar(
+                select(Repository).where(Repository.connection_id == cid)
+            ).clone_url
+            == "https://github.com/team/repo.git"
+        )

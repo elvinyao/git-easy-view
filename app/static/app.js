@@ -1,6 +1,7 @@
 /* Server-rendered fragments; URL preserves filter/expansion state. */
 (function ($) {
   'use strict';
+  const branchLoads = new WeakMap();
   function updateURL(key, value) {
     const url = new URL(window.location.href);
     if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
@@ -15,15 +16,21 @@
     }
   }
   function loadBranches(slot, page) {
+    const element = slot[0], previous = branchLoads.get(element), current = {};
+    // Transfer ownership before abort: abort may synchronously call fail/always.
+    branchLoads.set(element, current);
+    if (previous && previous.request) previous.request.abort();
+    const ownsSlot = function () {return branchLoads.get(element) === current;};
     const id = slot.data('repo-id'), params = new URLSearchParams(window.location.search);
     params.set('page', page || 1);
     slot.prop('hidden', false).attr('aria-busy', 'true');
-    $.ajax({url: '/repositories/' + id + '/branches?' + params.toString(), dataType: 'html'})
-      .done(function (html) { slot.html(html); })
-      .fail(function () {
+    current.request = $.ajax({url: '/repositories/' + id + '/branches?' + params.toString(), dataType: 'html'})
+      .done(function (html) { if (ownsSlot()) slot.html(html); })
+      .fail(function (_request, status) {
+        if (!ownsSlot() || status === 'abort') return;
         slot.empty().append($('<div>', {class: 'empty', text: '分支加载失败。权限可能已变更，或服务暂不可用。 '}))
           .find('.empty').append($('<button>', {type: 'button', class: 'retry-branches', text: '重试', 'data-page': page || 1}));
-      }).always(function () {slot.removeAttr('aria-busy');});
+      }).always(function () {if (ownsSlot()) slot.removeAttr('aria-busy');});
   }
   $(function () {
     $('.expand').each(function () { if ($(this).data('expanded')) loadBranches($('#branches-' + $(this).data('repo-id')), $(this).data('page')); });
