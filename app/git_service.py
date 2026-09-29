@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .process_locks import git_lock_fds
+
 
 MAX_OUTPUT = 4 * 1024 * 1024
 MAX_BRANCHES = 10000
@@ -112,6 +114,10 @@ def _run(
             stderr=subprocess.PIPE,
             env=_environment(env, allow_file_transport=allow_file_transport),
             start_new_session=True,
+            # A worker-only SIGKILL must not release the repository lock while
+            # its orphan Git still mutates the bare cache. These descriptors
+            # are otherwise CLOEXEC and never inherited by unrelated children.
+            pass_fds=git_lock_fds(),
         )
     except OSError as exc:
         raise GitError("Unable to start Git") from exc

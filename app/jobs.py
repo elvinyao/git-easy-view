@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .config import Settings
 from .db import make_engine
 from .models import Branch, PlatformConnection, Repository, SyncJob, utc_now
+from .process_locks import inherit_lock_for_git
 
 ACTIVE = ("pending", "queued", "running", "retry")
 TERMINAL = ("succeeded", "failed", "superseded", "auth_failed")
@@ -69,10 +70,11 @@ def repository_lock(settings, repository_id, *, blocking=True):
         except BlockingIOError:
             yield False
             return
-        try:
+        with inherit_lock_for_git(handle.fileno()):
             yield True
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+        # Closing releases our reference. Do not explicitly LOCK_UN: Git may
+        # still own the same open-file description if this worker died or its
+        # stack unwound. The kernel releases flock after the last holder exits.
 
 
 def locked_repository(session, repository_id):
