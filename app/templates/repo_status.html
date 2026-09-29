@@ -1,3 +1,13 @@
+<p class="coverage" data-git-state="{{ sync_status.git_state }}" data-api-state="{{ sync_status.api_state }}">
+  Git 数据：{{ sync_status.git_state }} · API 数据：{{ sync_status.api_state }}。
+  过期阈值：{{ sync_status.threshold_seconds }} 秒（同步间隔的 2 倍，最少 60 秒），按各自最后成功同步时间独立判断。
+</p>
+{% if sync_status.git_aged %}
+  <div class="notice danger">Git 数据已过期：最后成功同步 {{ repo.git_synced_at|date }}，当前展示历史快照。</div>
+{% endif %}
+{% if sync_status.api_aged %}
+  <div class="notice danger">API 数据已过期：最后成功同步 {{ repo.api_synced_at|date }}，平台记录可能未包含近期变化。</div>
+{% endif %}
 {% if repo.sync_error %}
   <div class="notice danger">
     Git 同步失败
@@ -14,7 +24,7 @@
 {% if repo.git_synced_at and repo.requested_generation > repo.snapshot_generation %}
   <div class="notice">有新的分析请求尚未发布，仍显示上次快照（{{ repo.git_synced_at|date }}）。</div>
 {% endif %}
-{% if repo.connection.auth_disabled %}
+{% if sync_status.disabled %}
   <div class="notice danger">连接凭据待恢复：自动同步已暂停，需管理员检查连接。本地已缓存证据仍可查看。</div>
 {% endif %}
 {% if repo.api_error %}

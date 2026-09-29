@@ -5,7 +5,15 @@ from sqlalchemy.orm import Session, selectinload
 from app.auth import current_user, require_project_access
 from app.db import get_session
 from app.models import Branch, ProjectRepository, Repository, User
-from app.web import branch_views, filtered, query_state, render, visible_projects
+from app.web import (
+    branch_views,
+    filtered,
+    query_state,
+    render,
+    visible_projects,
+    repository_statuses,
+    summarize_statuses,
+)
 
 router = APIRouter()
 
@@ -17,14 +25,25 @@ def home(
     session: Session = Depends(get_session),
 ):
     projects = visible_projects(session, user)
-    counts = dict(
-        session.execute(
-            select(ProjectRepository.project_id, func.count())
-            .where(ProjectRepository.project_id.in_([p.id for p in projects]))
-            .group_by(ProjectRepository.project_id)
-        ).all()
+    links = session.execute(
+        select(ProjectRepository.project_id, Repository)
+        .join(Repository, Repository.id == ProjectRepository.repository_id)
+        .where(ProjectRepository.project_id.in_([p.id for p in projects]))
+    ).all()
+    statuses = repository_statuses(
+        session, {repo.id: repo for _, repo in links}.values()
     )
-    return render(request, "home.html", session, user, counts=counts)
+    by_project = {project.id: [] for project in projects}
+    for project_id, repo in links:
+        by_project[project_id].append(statuses[repo.id])
+    return render(
+        request,
+        "home.html",
+        session,
+        user,
+        counts={pid: len(items) for pid, items in by_project.items()},
+        summaries={pid: summarize_statuses(items) for pid, items in by_project.items()},
+    )
 
 
 @router.get("/projects/{project_id}")
@@ -54,6 +73,8 @@ def project_page(
         ).all()
     )
     all_count = len(repos)
+    statuses = repository_statuses(session, repos)
+    summary = summarize_statuses(statuses.values())
     if query["q"] or query["role"] or query["relation"]:
         views = branch_views(session, repos)
         repos = [r for r in repos if filtered(views[r.id], query)]
@@ -69,5 +90,7 @@ def project_page(
         total=count,
         all_count=all_count,
         branch_counts=totals,
-        stale_count=sum(bool(r.sync_error or r.api_error) for r in repos),
+        stale_count=summary["attention"],
+        summary=summary,
+        repo_statuses=statuses,
     )

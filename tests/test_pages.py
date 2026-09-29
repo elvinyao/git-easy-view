@@ -771,10 +771,128 @@ def test_pending_snapshot_and_disabled_credentials_remain_explicit(client, app, 
     assert "连接凭据待恢复" in response.text
 
 
-def test_pr_detail_preserves_platform_identities_and_unknown_merge_time(client, app, pages):
+def test_pr_detail_preserves_platform_identities_and_unknown_merge_time(
+    client, app, pages
+):
     with Session(app.state.engine) as s:
-        pr = PullRequest(connection_id=pages['connection'], repository_id=pages['repo'], external_id='identity-test', title='identity', web_url='https://github.com/team/api/pull/4', state='open', source_external_repo_id='external-source-2', target_external_repo_id='external-target-3')
-        s.add(pr); s.commit(); pid = pr.id
+        pr = PullRequest(
+            connection_id=pages["connection"],
+            repository_id=pages["repo"],
+            external_id="identity-test",
+            title="identity",
+            web_url="https://github.com/team/api/pull/4",
+            state="open",
+            source_external_repo_id="external-source-2",
+            target_external_repo_id="external-target-3",
+        )
+        s.add(pr)
+        s.commit()
+        pid = pr.id
     response = client.get(f"/repositories/{pages['repo']}/pull-requests/{pid}")
-    assert 'external-source-2' in response.text and 'external-target-3' in response.text
-    assert '合并时间 未知' in response.text
+    assert "external-source-2" in response.text and "external-target-3" in response.text
+    assert "合并时间 未知" in response.text
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_git", "expected_api", "summary_label"),
+    [
+        ("aged", "已过期", "已过期", "数据过期"),
+        ("api_aged", "正常", "已过期", "数据过期"),
+        ("git_aged", "已过期", "正常", "数据过期"),
+        ("api_missing", "正常", "尚未同步", "等待首次同步"),
+        ("new", "正在导入", "尚未同步", "等待首次同步"),
+        ("pending", "待更新", "待更新", "待发布更新"),
+        ("disabled", "正常", "正常", "连接已暂停"),
+    ],
+)
+def test_sync_age_and_lifecycle_are_consistent_across_pages(
+    client, app, pages, scenario, expected_git, expected_api, summary_label
+):
+    now = utc_now()
+    with Session(app.state.engine) as s:
+        repo = s.get(Repository, pages["repo"])
+        repo.git_synced_at = repo.api_synced_at = now
+        repo.snapshot_generation = repo.api_generation = repo.requested_generation = 1
+        repo.sync_interval_seconds = 300
+        if scenario in ("aged", "api_aged", "git_aged"):
+            if scenario != "git_aged":
+                repo.api_synced_at = now - timedelta(days=30)
+            if scenario != "api_aged":
+                repo.git_synced_at = now - timedelta(days=30)
+        elif scenario == "api_missing":
+            repo.api_synced_at = None
+        elif scenario == "new":
+            repo.git_synced_at = repo.api_synced_at = None
+            repo.snapshot_generation = repo.api_generation = 0
+        elif scenario == "pending":
+            repo.requested_generation = 2
+        else:
+            s.get(PlatformConnection, pages["connection"]).auth_disabled = True
+        s.commit()
+    fragment = client.get(f"/repositories/{pages['repo']}/branches").text
+    assert f"Git 数据：{expected_git}" in fragment
+    assert f"API 数据：{expected_api}" in fragment
+    assert "600 秒" in fragment and "同步间隔的 2 倍，最少 60 秒" in fragment
+    for path in ("/", f"/projects/{pages['project']}"):
+        html = client.get(path).text
+        assert 'data-sync-attention="1"' in html
+        assert summary_label in html
+
+
+def test_recent_complete_snapshots_are_not_reported_as_aged(client, app, pages):
+    with Session(app.state.engine) as s:
+        repo = s.get(Repository, pages["repo"])
+        repo.git_synced_at = repo.api_synced_at = utc_now()
+        repo.snapshot_generation = repo.api_generation = repo.requested_generation = 1
+        s.commit()
+    html = client.get("/").text
+    assert 'data-sync-attention="0"' in html and "同步正常" in html
+    assert (
+        "Git 数据：正常" in client.get(f"/repositories/{pages['repo']}/branches").text
+    )
+
+
+def test_sync_status_batches_connections_and_shows_threshold_floor(client, app, pages):
+    from sqlalchemy import event
+
+    with Session(app.state.engine) as s:
+        s.get(Repository, pages["repo"]).sync_interval_seconds = 30
+        for index in range(12):
+            connection = PlatformConnection(
+                name=f"instance-{index}",
+                kind="gitlab",
+                base_url=f"https://git-{index}.example.com",
+            )
+            s.add(connection)
+            s.flush()
+            repo = Repository(
+                connection_id=connection.id,
+                external_id="1",
+                name=f"repo-{index}",
+                full_name=f"team/repo-{index}",
+                web_url=f"https://git-{index}.example.com/team/repo",
+                clone_url=f"https://git-{index}.example.com/team/repo.git",
+            )
+            s.add(repo)
+            s.flush()
+            s.add(ProjectRepository(project_id=pages["project"], repository_id=repo.id))
+        s.commit()
+    statements = []
+
+    def observe(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(app.state.engine, "before_cursor_execute", observe)
+    try:
+        assert client.get("/").status_code == 200
+        assert len(statements) <= 6
+        statements.clear()
+        assert client.get(f"/projects/{pages['project']}").status_code == 200
+        assert len(statements) <= 10
+    finally:
+        event.remove(app.state.engine, "before_cursor_execute", observe)
+    assert (
+        "60 秒（同步间隔的 2 倍，最少 60 秒）"
+        in client.get(f"/repositories/{pages['repo']}/branches").text
+    )

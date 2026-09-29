@@ -13,6 +13,11 @@
     <a class="project-card" href="/projects/{{ project.id }}"><span class="project-icon">⌘</span>
     <h2>{{ project.name }}</h2>
     <p class="muted">{{ project.description or '查看仓库、分支与关系证据' }}</p>
+    {% if counts.get(project.id, 0) %}
+      {% with summary=summaries[project.id] %}{% include 'sync_summary.html' %}{% endwith %}
+    {% else %}
+      <small>暂无仓库，尚无同步数据</small>
+    {% endif %}
     <div class="card-bottom">
       <strong>{{ counts.get(project.id, 0) }} <span class="muted">个仓库</span></strong><span>进入项目 →</span>
     </div>

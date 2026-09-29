@@ -25,6 +25,7 @@
       计划目标与提交包含关系分别判断。
     </p>
   </div>
+  {% if all_count %}{% include 'sync_summary.html' %}{% endif %}
   {% include 'filters.html' %}
   <section class="panel repository-list">
     <div class="section-heading">
@@ -54,9 +55,9 @@
           </div>
           <div class="sync-times">
             <span>Git 同步 <time>{{ repo.git_synced_at|date }}</time>
-              {% if repo.sync_error %}<b class="error-dot">异常</b>{% endif %}
+              <b class="{{ 'error-dot' if repo_statuses[repo.id].git_state != '正常' else 'muted' }}">{{ repo_statuses[repo.id].git_state }}</b>
               </span><span>API 同步 <time>{{ repo.api_synced_at|date }}</time>
-              {% if repo.api_error %}<b class="error-dot">异常</b>{% endif %}
+              <b class="{{ 'error-dot' if repo_statuses[repo.id].api_state != '正常' else 'muted' }}">{{ repo_statuses[repo.id].api_state }}</b>
             </span>
           </div>
           <a class="small-link" href="/repositories/{{ repo.id }}/branches">分支列表 ↗</a>

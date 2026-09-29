@@ -1,6 +1,7 @@
 """Shared server-rendered view helpers; no network calls on member reads."""
 
 from pathlib import Path
+from dataclasses import dataclass
 from types import SimpleNamespace
 from urllib.parse import urlencode, urlsplit
 
@@ -10,7 +11,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.auth import session_data, verify_csrf
-from app.models import Branch, Comparison, Project, ProjectMember, PullRequest
+from app.models import (
+    Branch,
+    Comparison,
+    PlatformConnection,
+    Project,
+    ProjectMember,
+    PullRequest,
+    utc_now,
+)
 from app.relations import BranchRef, PullRequestRef, TargetRef, planned_targets
 from app.sync import branch_role
 
@@ -108,6 +117,96 @@ def visible_projects(session, user):
     return session.scalars(stmt).all()
 
 
+@dataclass(frozen=True)
+class RepositoryStatus:
+    threshold_seconds: int
+    git_state: str
+    api_state: str
+    git_aged: bool
+    api_aged: bool
+    missing: bool
+    pending: bool
+    disabled: bool
+    error: bool
+
+    @property
+    def aged(self):
+        return self.git_aged or self.api_aged
+
+    @property
+    def attention(self):
+        return self.aged or self.missing or self.pending or self.disabled or self.error
+
+
+def repository_statuses(session, repositories, *, now=None):
+    """Batch freshness/lifecycle state without lazy connection queries.
+
+    Git and API age independently. A successful snapshot becomes stale after
+    twice its configured polling interval, with a 60-second minimum allowance.
+    Missing timestamps never mean fresh; generation lag is tracked separately.
+    """
+    repositories = list(repositories)
+    if not repositories:
+        return {}
+    now = now or utc_now()
+    disabled = dict(
+        session.execute(
+            select(PlatformConnection.id, PlatformConnection.auth_disabled).where(
+                PlatformConnection.id.in_({r.connection_id for r in repositories})
+            )
+        ).all()
+    )
+    result = {}
+    for repo in repositories:
+        threshold = max(2 * repo.sync_interval_seconds, 60)
+        git_aged = bool(
+            repo.git_synced_at
+            and (now - repo.git_synced_at).total_seconds() > threshold
+        )
+        api_aged = bool(
+            repo.api_synced_at
+            and (now - repo.api_synced_at).total_seconds() > threshold
+        )
+        git_pending = repo.requested_generation > repo.snapshot_generation
+        api_pending = repo.requested_generation > repo.api_generation
+
+        def state(timestamp, error, aged, pending, missing_label):
+            if error:
+                return "异常"
+            if timestamp is None:
+                return missing_label
+            if aged:
+                return "已过期"
+            if pending:
+                return "待更新"
+            return "正常"
+
+        result[repo.id] = RepositoryStatus(
+            threshold_seconds=threshold,
+            git_state=state(
+                repo.git_synced_at, repo.sync_error, git_aged, git_pending, "正在导入"
+            ),
+            api_state=state(
+                repo.api_synced_at, repo.api_error, api_aged, api_pending, "尚未同步"
+            ),
+            git_aged=git_aged,
+            api_aged=api_aged,
+            missing=repo.git_synced_at is None or repo.api_synced_at is None,
+            pending=git_pending or api_pending,
+            disabled=disabled.get(repo.connection_id, True),
+            error=bool(repo.sync_error or repo.api_error),
+        )
+    return result
+
+
+def summarize_statuses(statuses):
+    statuses = list(statuses)
+    return {
+        key: sum(bool(getattr(status, key)) for status in statuses)
+        for key in ("attention", "aged", "missing", "pending", "disabled", "error")
+    }
+
+
 def render(request, template, session, user, *, status_code=200, **context):
     base = dict(
         user=user,
@@ -116,6 +215,9 @@ def render(request, template, session, user, *, status_code=200, **context):
         query=query_state(request),
         query_url=lambda **changes: query_url(request, **changes),
     )
+    if context.get("repo") is not None:
+        repo = context["repo"]
+        base["sync_status"] = repository_statuses(session, [repo])[repo.id]
     return templates.TemplateResponse(
         request, template, {**base, **context}, status_code=status_code
     )
