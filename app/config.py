@@ -1,7 +1,7 @@
 import secrets
 
 from cryptography.fernet import Fernet
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,10 +9,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GEV_", env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     production: bool = True
-    database_url: str | None = None
-    session_secret: str | None = None
-    credential_key: str | None = None
-    redis_url: str = "redis://localhost:6379/0"
+    database_url: str | None = Field(default=None, repr=False)
+    session_secret: str | None = Field(default=None, repr=False)
+    credential_key: str | None = Field(default=None, repr=False)
+    redis_url: str = Field(default="redis://localhost:6379/0", repr=False)
     cache_root: str = "./data/git"
     queue_name: str = "git-sync"
     job_timeout_seconds: int = 3600

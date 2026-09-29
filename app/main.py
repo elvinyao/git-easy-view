@@ -1,12 +1,13 @@
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.exception_handlers import http_exception_handler
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.auth import current_user, session_data, set_session, verify_csrf
@@ -33,6 +34,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         StaticFiles(directory=str(Path(__file__).parent / "static")),
         name="static",
     )
+
+    @app.get("/health", include_in_schema=False)
+    def readiness():
+        try:
+            with app.state.engine.connect() as connection:
+                connection.execute(select(1))
+        except SQLAlchemyError:
+            return JSONResponse({"status": "unavailable"}, status_code=503)
+        return {"status": "ready"}
 
     @app.exception_handler(StarletteHTTPException)
     async def friendly_form_error(request: Request, exc):

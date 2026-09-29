@@ -1,0 +1,2 @@
+FROM git-easy-view:local
+COPY --from=redis:7.4-bookworm /usr/local/bin/redis-server /usr/local/bin/redis-server

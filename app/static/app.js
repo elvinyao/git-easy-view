@@ -33,6 +33,11 @@
       }).always(function () {if (ownsSlot()) slot.removeAttr('aria-busy');});
   }
   $(function () {
+    $('.filters').on('submit', function () {
+      // A narrower filter can invalidate the previous branch page. Expansion
+      // stays shareable; pagination starts at the first matching branch.
+      $(this).find('input[type=hidden]').filter(function () {return /^bp_\d+$/.test(this.name);}).remove();
+    });
     $('.expand').each(function () { if ($(this).data('expanded')) loadBranches($('#branches-' + $(this).data('repo-id')), $(this).data('page')); });
     $('.branch-slot[data-auto]').each(function () { loadBranches($(this), $(this).data('page')); });
     $(document).on('click', '.expand', function () {

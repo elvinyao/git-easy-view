@@ -1,0 +1,108 @@
+x-app: &app
+  build: .
+  image: git-easy-view:local
+  env_file: ${GEV_ENV_FILE:-./runtime/local.env}
+  volumes:
+    - git-cache:/data/git
+    - ./runtime/ca:/etc/gev/ca:ro
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: gev
+      POSTGRES_DB: gev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD using --env-file}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U gev -d gev']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7.4-bookworm
+    command: [redis-server, --appendonly, 'yes']
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    <<: *app
+    command: [alembic, upgrade, head]
+    restart: 'no'
+    depends_on:
+      postgres: {condition: service_healthy}
+  web:
+    <<: *app
+    ports: ['127.0.0.1:${GEV_PORT:-8766}:8000']
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  worker:
+    <<: *app
+    command: [sh, -c, 'exec rq worker --with-scheduler --name "$$HOSTNAME" --url "$$GEV_REDIS_URL" "$${GEV_QUEUE_NAME:-git-sync}"']
+    deploy: {replicas: 2}
+    healthcheck:
+      test: [CMD, python, -c, "import os,socket; from redis import Redis; r=Redis.from_url(os.environ['GEV_REDIS_URL'],socket_timeout=3); assert r.exists('rq:worker:'+socket.gethostname())"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+  dispatcher:
+    <<: *app
+    command: [python, -m, app.scheduler]
+    healthcheck:
+      test: [CMD, python, -c, "from app.config import Settings; from app.db import make_engine; from sqlalchemy import text; from redis import Redis; s=Settings(); c=make_engine(s.database_url).connect(); c.execute(text('SELECT 1')); Redis.from_url(s.redis_url,socket_timeout=3).ping()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+  tools:
+    <<: *app
+    profiles: [tools]
+    restart: 'no'
+    volumes:
+      - .:/workspace
+      - git-cache:/data/git
+      - ./runtime/ca:/etc/gev/ca:ro
+  browser:
+    <<: *app
+    profiles: [verification]
+    image: git-easy-view:browser
+    build:
+      context: .
+      dockerfile: .agent/Dockerfile.browser
+    restart: 'no'
+    shm_size: 1gb
+    volumes:
+      - .:/workspace
+      - git-cache:/data/git
+  integration:
+    <<: *app
+    profiles: [verification]
+    image: git-easy-view:integration
+    build:
+      context: .
+      dockerfile: .agent/Dockerfile.integration
+    restart: 'no'
+    volumes:
+      - .:/workspace
+
+volumes:
+  postgres-data:
+  redis-data:
+  git-cache:

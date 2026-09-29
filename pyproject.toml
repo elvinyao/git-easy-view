@@ -33,5 +33,8 @@ gev = "app.cli:main"
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+app = ["templates/*.html", "static/*.css", "static/*.js", "static/vendor/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

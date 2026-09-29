@@ -1,0 +1,4 @@
+FROM git-easy-view:local
+RUN pip install --no-cache-dir playwright==1.63.0 && playwright install --with-deps chromium \
+    && apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
