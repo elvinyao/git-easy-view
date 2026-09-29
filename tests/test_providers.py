@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from importlib import import_module
+import traceback
 
 import httpx
 import pytest
@@ -387,3 +388,18 @@ def test_github_nondefault_port_in_pagination_is_rejected():
     with pytest.raises(errors.ProviderError):
         provider("github", "https://github.com", respond).repositories()
     assert len(seen) == 1
+
+
+def test_provider_errors_never_show_credential_in_formatted_traceback():
+    errors = import_module("app.providers.base")
+    token = "fixture-secret\nline"
+    with pytest.raises(errors.ProviderError) as invalid:
+        provider("github", "https://github.com", lambda req: httpx.Response(200, json=[]), token=token)
+    assert "fixture-secret" not in "".join(traceback.format_exception(invalid.value))
+
+    token = "fixture-secret"
+    def fail(req):
+        raise httpx.LocalProtocolError(f"Authorization: Bearer {token}")
+    with pytest.raises(errors.ProviderError) as request_error:
+        provider("github", "https://github.com", fail, token=token).repositories()
+    assert token not in "".join(traceback.format_exception(request_error.value))

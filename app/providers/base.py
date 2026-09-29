@@ -80,8 +80,8 @@ def timestamp(value: Any) -> datetime | None:
         raise ProviderError("Provider response has an invalid timestamp")
     try:
         result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ProviderError("Provider response has an invalid timestamp") from exc
+    except ValueError:
+        raise ProviderError("Provider response has an invalid timestamp") from None
     if result.tzinfo is None:
         raise ProviderError("Provider response has an invalid timestamp")
     return result.astimezone(timezone.utc)
@@ -104,8 +104,8 @@ def _url_parts(url: str) -> tuple[str, str, str]:
     try:
         parsed = urlsplit(url)
         port = parsed.port
-    except ValueError as exc:
-        raise ProviderError("Invalid provider URL") from exc
+    except ValueError:
+        raise ProviderError("Invalid provider URL") from None
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ProviderError("Provider URL must be an HTTPS instance URL")
     origin = f"https://{parsed.hostname.lower()}" + (f":{port}" if port and port != 443 else "")
@@ -128,6 +128,8 @@ class Provider:
     timeout = 15.0
 
     def __init__(self, connection: Any, token: str | None, client: httpx.Client | None = None):
+        if token is not None and (not isinstance(token, str) or any(ord(char) < 32 or ord(char) == 127 for char in token)):
+            raise ProviderError("Invalid provider credential")
         self.connection = connection
         self.token = token
         self.kind = connection.kind
@@ -166,8 +168,8 @@ class Provider:
         try:
             parsed = urlsplit(url)
             port = parsed.port
-        except ValueError as exc:
-            raise ProviderError("Unsafe provider pagination URL") from exc
+        except ValueError:
+            raise ProviderError("Unsafe provider pagination URL") from None
         api = urlsplit(self.api_root)
         if (parsed.scheme != "https" or parsed.hostname != api.hostname
                 or (port if port is not None else 443) != (api.port if api.port is not None else 443)
@@ -188,8 +190,10 @@ class Provider:
                 f"Bearer {self.token}" if self.kind == "github" else self.token)
         try:
             response = self.client.get(url, params=params, headers=headers, timeout=self.timeout, follow_redirects=False)
-        except httpx.HTTPError as exc:
-            raise ProviderError("Provider request failed") from exc
+        except httpx.HTTPError:
+            response = None
+        if response is None:
+            raise ProviderError("Provider request failed")
         if response.status_code in (301, 302, 303, 307, 308):
             raise ProviderError("Provider redirect rejected")
         if response.status_code == 401:
@@ -224,8 +228,9 @@ class Provider:
     def _json(self, response: httpx.Response) -> Any:
         try:
             return response.json()
-        except ValueError as exc:
-            raise ProviderError("Provider returned invalid JSON") from exc
+        except ValueError:
+            pass
+        raise ProviderError("Provider returned invalid JSON")
 
     def _pages(self, path: str, params: dict | None = None):
         url = self.api_root + path
