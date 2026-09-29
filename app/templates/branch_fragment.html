@@ -1,0 +1,189 @@
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">
+      <a href="/repositories/{{ repo.id }}">{{ repo.full_name }}</a> / 分支证据
+    </p>
+    <h1 class="wrap-ref">{{ view.branch.name }}</h1>
+    <span class="badge">{{ roles.get(view.role, view.role) }}</span>
+    {% if view.branch.deleted %}<span class="badge danger">分支当前不存在 · 历史记录</span>{% endif %}
+  </div>
+  {% if user.is_admin %}<a class="button" href="/admin/branches/{{ view.branch.id }}">编辑分支配置</a>{% endif %}
+</header>
+{% include 'repo_status.html' %}
+<section class="panel detail-section">
+  <div class="section-heading">
+    <h2>当前提交关系</h2>
+    <span class="badge state-{{ view.state }}">{{ states.get(view.state, '未分析') }}</span>
+  </div>
+  <p>
+    比较对象：<strong class="wrap-ref">{{ view.primary.name if view.primary else '未知' }}</strong> <span class="muted">{{ view.primary_reason }}</span>
+  </p>
+  {% with target=view.primary %}
+    {% include "target_identity.html" %}
+  {% endwith %}
+  <div class="oid-grid">
+    <div>
+      <small>当前分支固定 OID</small><code>{{ view.branch.head_oid or '当前不存在' }}</code>
+    </div>
+    <div>
+      <small>比较对象固定 OID</small><code>{{ view.primary.oid if view.primary and view.primary.oid else '目标当前不存在、跨仓库或未知，无法比较' }}</code>
+    </div>
+  </div>
+  <div class="metrics compact">
+    <div>
+      <strong>{{ view.comparison.ahead if view.comparison and view.comparison.ahead is not none else '—' }}</strong><span>领先（当前分支独有）</span>
+    </div>
+    <div>
+      <strong>{{ view.comparison.behind if view.comparison and view.comparison.behind is not none else '—' }}</strong><span>落后（对象分支独有）</span>
+    </div>
+  </div>
+  <p class="muted">提交可达性不代表内容或功能等价。Squash、rebase、cherry-pick 或 revert 后，平台合并记录可能与提交包含关系不同。</p>
+  <form method="get" class="inline-form">
+    <label>
+      选择其他比较对象
+      <select name="target_id">
+        {% for ref in view.refs.values() %}
+          <option value="{{ ref.branch_id }}"
+                  {% if view.primary and ref.branch_id == view.primary.branch_id %}selected{% endif %}>
+            {{ ref.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button>查看缓存比较</button>
+  </form>
+  {% if not view.comparison and view.primary and view.primary.repository_id == repo.id and view.primary.branch_id and view.primary.oid and not view.branch.deleted %}
+    <form method="post"
+          action="/repositories/{{ repo.id }}/branches/{{ view.branch.id }}/compare"
+          class="compare-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="target_id" value="{{ view.primary.branch_id }}">
+      <button class="primary">请求本地分析</button>
+      <small class="muted">仅分析已有 Git 副本，由后台计算。</small>
+    </form>
+  {% endif %}
+  <div class="job-status" role="status" data-repository="{{ repo.id }}"></div>
+</section>
+<div class="detail-grid">
+  <section class="panel detail-section">
+    <h2>来源证据</h2>
+    <p class="muted">Git 不记录永久父分支。共同祖先说明历史关系，不能证明创建来源。</p>
+    {% for source in view.sources %}
+    <article class="evidence"><strong class="wrap-ref">{{ source.name }}</strong> <span class="badge">{{ '人工指定' if source.kind == 'manual' else '推测' }}</span>
+    {% if source.deleted %}<small>来源分支当前不存在</small>{% endif %}
+    {% if source.kind != 'manual' %}
+      <small>候选分支独有 {{ source.ahead if source.ahead is not none else '—' }} · 当前分支独有 {{ source.behind if source.behind is not none else '—' }}</small>
+      {% for oid in source.merge_bases or [] %}<code>{{ oid }}</code>{% endfor %}
+    {% endif %}
+  </article>
+{% else %}
+  <p>无法判断，暂无来源证据。</p>
+{% endfor %}
+{% if view.config %}
+  <p class="muted">人工配置记录：{{ actor.username if actor else '未知操作者' }} · {{ view.config.updated_at|date }}</p>
+{% endif %}
+</section>
+<section class="panel detail-section">
+  <h2>计划合入目标</h2>
+  {% for plan in view.plans %}
+  <article class="evidence"><strong class="wrap-ref">{{ plan.target.name }}</strong>
+  {% with target=plan.target %}
+    {% include "target_identity.html" %}
+  {% endwith %}
+  {% if plan.pr_id %}
+    <a class="small-link"
+       href="/repositories/{{ repo.id }}/pull-requests/{{ plan.pr_id }}">计划依据 ↗</a>
+  {% endif %}
+  <small>{{ '人工指定' if plan.kind == 'manual' else '开放 PR/MR 提供的计划' }}
+    {% if plan.target.repository_id != repo.id %}
+      · 跨仓库目标，仅展示平台证据
+    {% elif not plan.target.oid %}
+      · 目标当前不存在
+    {% endif %}
+  </small></article>
+{% else %}
+  <p>无计划目标</p>
+{% endfor %}
+<p class="muted">默认与主干比较不会自动生成计划目标。</p>
+</section>
+</div>
+<section class="panel detail-section">
+  <h2>所有相关目标比较</h2>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>比较对象</th>
+          <th>目标固定 OID</th>
+          <th>领先 / 落后</th>
+          <th>当前提交关系</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for target, comparison in view.targets %}
+          <tr>
+            <td>
+              {{ target.name }}
+              {% include "target_identity.html" %}
+            </td>
+            <td>
+              <code>{{ target.oid or '目标不可用，未拉取' }}</code>
+            </td>
+            <td>
+              {{ comparison.ahead if comparison and comparison.ahead is not none else '—' }} / {{ comparison.behind if comparison and comparison.behind is not none else '—' }}
+            </td>
+            <td>{{ states.get(comparison.state, '未分析') if comparison else '未分析' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <h3>全部公共祖先</h3>
+  {% if view.comparison %}
+    {% for oid in view.comparison.merge_bases %}
+      <code class="block">{{ oid }}</code>
+    {% else %}
+      <p>无共同历史。</p>
+    {% endfor %}
+  {% else %}
+    <p class="muted">尚未分析。</p>
+  {% endif %}
+</section>
+<section class="panel detail-section">
+  <h2>
+    当前分支独有提交 <small>最多显示 50 条</small>
+  </h2>
+  {% if commit_error %}
+    <p class="notice" role="status">
+      {{ commit_error }} <a href="{{ query_url() }}">重试</a>
+    </p>
+  {% else %}
+    {% for commit in commits %}
+      <div class="commit-row">
+        <code>{{ commit.oid[:10] }}</code><span>{{ commit.subject }}</span><small>{{ commit.author_name }} · {{ commit.authored_at|date }}</small>
+      </div>
+    {% else %}
+      <p class="muted">{{ '无独有提交。' if view.comparison else '未分析，暂不展示提交列表。' }}</p>
+    {% endfor %}
+  {% endif %}
+</section>
+<section class="panel detail-section">
+  <h2>PR / MR 平台记录与历史</h2>
+  {% for pr in view.prs %}
+    <article class="evidence"><a href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}">{{ pr.title }}</a><span class="badge">{{ {'open':'开放','closed':'已关闭','merged':'历史已合并'}.get(pr.state, '未确认') }}</span><small>{{ pr.source_branch or '来源未知' }} → {{ pr.target_branch or '目标未知' }}</small>
+      {% if view.branch.deleted or not pr.source_oid or pr.source_oid != view.branch.head_oid %}
+        <p class="warning">
+          历史记录：{{ '分支当前不存在' if view.branch.deleted else ('平台来源 OID 与当前头提交不同' if pr.source_oid else '平台来源 OID 未知') }}，不能认定为当前分支的合并结果。
+        </p>
+      {% endif %}
+      {% if pr.web_url|safe_url(repo.connection) %}
+        <a class="small-link"
+           href="{{ pr.web_url|safe_url(repo.connection) }}"
+           target="_blank"
+           rel="noopener noreferrer">平台原始记录 ↗</a>
+      {% endif %}
+    </article>
+  {% else %}
+    <p>当前已获取数据中没有记录，是否曾合并未确认。</p>
+  {% endfor %}
+</section>

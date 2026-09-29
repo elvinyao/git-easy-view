@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block content %}
+  <p class="eyebrow">
+    <a href="/admin">管理工作台</a> / 项目权限
+  </p>
+  <h1>{{ project.name }}</h1>
+  <div class="admin-grid">
+    <section class="panel">
+      <h2>项目信息</h2>
+      <form method="post" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>
+          名称
+          <input name="name" value="{{ project.name }}" maxlength="255" required>
+        </label>
+        <label>
+          描述<textarea name="description" maxlength="4000">{{ project.description or '' }}</textarea>
+        </label>
+        <button>保存项目</button>
+      </form>
+    </section>
+    <section class="panel">
+      <h2>成员授权</h2>
+      <p class="muted">撤销后下一次请求立即生效。管理员始终可查看全部项目。</p>
+      <ul class="admin-list">
+        {% for member in members %}
+          <li>
+            <span>{{ member.username }}</span>
+            <form method="post" action="/admin/projects/{{ project.id }}/members">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="user_id" value="{{ member.id }}">
+              <button name="action" value="revoke">撤销授权</button>
+            </form>
+          </li>
+        {% else %}
+          <li>暂无成员</li>
+        {% endfor %}
+      </ul>
+      <form method="post"
+            action="/admin/projects/{{ project.id }}/members"
+            class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>
+          添加成员
+          <select name="user_id">
+            {% for person in users %}
+              <option value="{{ person.id }}">{{ person.username }}{{ '（停用）' if not person.is_active else '' }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="primary" name="action" value="grant">授予查看权限</button>
+      </form>
+    </section>
+  </div>
+{% endblock %}

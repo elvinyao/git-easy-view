@@ -1,0 +1,31 @@
+{% if repo.sync_error %}
+  <div class="notice danger">
+    Git 同步失败
+    {% if repo.git_synced_at %}
+      ，保留上次快照（{{ repo.git_synced_at|date }}）
+    {% else %}
+      ，首次导入尚未完成
+    {% endif %}
+    。管理员可在恢复连接后重试。
+  </div>
+{% elif not repo.git_synced_at %}
+  <div class="notice">正在导入：等待首次 Git 快照，分支数量与差异尚未知。</div>
+{% endif %}
+{% if repo.git_synced_at and repo.requested_generation > repo.snapshot_generation %}
+  <div class="notice">有新的分析请求尚未发布，仍显示上次快照（{{ repo.git_synced_at|date }}）。</div>
+{% endif %}
+{% if repo.connection.auth_disabled %}
+  <div class="notice danger">连接凭据待恢复：自动同步已暂停，需管理员检查连接。本地已缓存证据仍可查看。</div>
+{% endif %}
+{% if repo.api_error %}
+  <div class="notice danger">API 同步失败，平台记录保留到 {{ repo.api_synced_at|date }}，可能已过期。</div>
+{% endif %}
+<p class="coverage">
+  平台覆盖：
+  {% if repo.api_coverage_since %}
+    全部开放记录 + {{ repo.api_coverage_since|date }} 以来更新的关闭／合并记录
+  {% else %}
+    尚未确认
+  {% endif %}
+  。未找到记录不代表从未合并。
+</p>

@@ -1,16 +1,46 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Git Easy View</title>
-</head>
-<body>
-  <header><strong>Git Easy View</strong> <span>{{ user.username }}</span>
-    <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">退出</button></form>
-  </header>
-  <main><h1>项目</h1>
-    {% if projects %}<ul>{% for project in projects %}<li>{{ project.name }}</li>{% endfor %}</ul>{% else %}<p>暂无可查看的项目。</p>{% endif %}
-  </main>
-</body>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>
+      {% block title %}团队概览{% endblock %}
+    · Git Easy View</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script defer src="/static/vendor/jquery.min.js"></script><script defer src="/static/app.js"></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/"><span class="brand-mark">g.</span><span>Git Easy View<small>团队分支工作台</small></span></a>
+      <nav aria-label="主导航">
+        <a href="/" class="nav-link">◈ 项目概览</a>
+        <p class="nav-label">我的项目</p>
+        {% for p in projects %}
+          <a class="nav-link {% if project is defined and project.id == p.id %}active{% endif %}"
+             href="/projects/{{ p.id }}">{{ p.name }}</a>
+        {% else %}
+          <p class="muted">暂无项目授权</p>
+        {% endfor %}
+        {% if user.is_admin %}
+          <p class="nav-label">管理</p>
+          <a class="nav-link" href="/admin">⚙ 管理工作台</a>
+        {% endif %}
+      </nav>
+      <div class="sidebar-footer">
+        <strong>{{ user.username }}</strong><small>{{ '系统管理员' if user.is_admin else '项目成员' }}</small>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="quiet" type="submit">退出登录 ↗</button>
+        </form>
+      </div>
+    </aside>
+    <main class="main">
+      {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+      {% block content %}{% endblock %}
+      <footer class="footer">
+        Git 提交历史与平台记录独立展示 · 所有时间为 UTC
+      </footer>
+    </main>
+  </body>
 </html>

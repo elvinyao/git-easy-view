@@ -3,14 +3,16 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import current_user, session_data, set_session, verify_csrf
 from app.config import Settings
-from app.db import get_session, make_engine
-from app.models import Project, ProjectMember, User
-
+from app.db import make_engine
+from app.models import User
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -21,17 +23,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = make_engine(settings.database_url)
 
-    @app.get("/")
-    def home(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)):
-        if user.is_admin:
-            projects = session.scalars(select(Project).order_by(Project.name)).all()
-        else:
-            projects = session.scalars(
-                select(Project).join(ProjectMember).where(ProjectMember.user_id == user.id).order_by(Project.name)
-            ).all()
-        return templates.TemplateResponse(
-            request, "base.html", {"user": user, "projects": projects, "csrf_token": session_data(request)["csrf"]}
-        )
+    from app.routes import projects, repositories, admin
+
+    app.include_router(projects.router)
+    app.include_router(repositories.router)
+    app.include_router(admin.router)
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(Path(__file__).parent / "static")),
+        name="static",
+    )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def friendly_form_error(request: Request, exc):
+        if (
+            request.method == "POST"
+            and exc.status_code in (400, 409, 422)
+            and "application/json" not in request.headers.get("accept", "")
+        ):
+            return templates.TemplateResponse(
+                request,
+                "form_error.html",
+                {"message": str(exc.detail)},
+                status_code=exc.status_code,
+            )
+        return await http_exception_handler(request, exc)
 
     @app.get("/login")
     def login_page(request: Request):
@@ -39,8 +55,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         csrf = existing["csrf"] if existing else None
         if csrf is None:
             import secrets
+
             csrf = secrets.token_urlsafe(32)
-        response = templates.TemplateResponse(request, "login.html", {"csrf_token": csrf, "error": None})
+        response = templates.TemplateResponse(
+            request, "login.html", {"csrf_token": csrf, "error": None}
+        )
         if not existing:
             set_session(response, request, None, csrf)
         return response
@@ -51,7 +70,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return str(form.get("username", "")), str(form.get("password", ""))
 
     @app.post("/login")
-    def login(request: Request, credentials: tuple[str, str] = Depends(login_credentials)):
+    def login(
+        request: Request, credentials: tuple[str, str] = Depends(login_credentials)
+    ):
         username, password = credentials
         with Session(app.state.engine) as session:
             user = session.scalar(select(User).where(User.username == username))
@@ -59,7 +80,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return templates.TemplateResponse(
                     request,
                     "login.html",
-                    {"csrf_token": session_data(request)["csrf"], "error": "Invalid username or password"},
+                    {
+                        "csrf_token": session_data(request)["csrf"],
+                        "error": "Invalid username or password",
+                    },
                     status_code=401,
                 )
             user_id = user.id

@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+  <header class="page-heading">
+    <div>
+      <p class="eyebrow">WORKSPACE</p>
+      <h1>项目概览</h1>
+      <p class="muted">从项目进入，集中查看仓库与分支的当前状态。</p>
+    </div>
+    {% if user.is_admin %}<a class="button primary" href="/admin">管理与导入 ↗</a>{% endif %}
+  </header>
+  <div class="project-grid">
+    {% for project in projects %}
+    <a class="project-card" href="/projects/{{ project.id }}"><span class="project-icon">⌘</span>
+    <h2>{{ project.name }}</h2>
+    <p class="muted">{{ project.description or '查看仓库、分支与关系证据' }}</p>
+    <div class="card-bottom">
+      <strong>{{ counts.get(project.id, 0) }} <span class="muted">个仓库</span></strong><span>进入项目 →</span>
+    </div>
+  </a>
+{% else %}
+  <section class="empty panel">
+    <h2>暂无可查看的项目</h2>
+    <p>
+      请联系管理员分配项目权限。
+      {% if user.is_admin %}也可以先创建项目并导入仓库。{% endif %}
+    </p>
+  </section>
+{% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+  <p class="eyebrow">
+    <a href="/repositories/{{ repo.id }}">{{ repo.full_name }}</a> / 平台记录
+  </p>
+  <h1>{{ pr.title }}</h1>
+  <section class="panel detail-section">
+    <span class="badge">{{ {'open':'开放','closed':'已关闭','merged':'历史已合并'}.get(pr.state, '未确认') }}</span>
+    <p>{{ pr.source_branch or '来源未知' }} → {{ pr.target_branch or '目标未知' }}</p>
+    <p>平台来源仓库 ID：{{ pr.source_external_repo_id or '未知' }}</p>
+    <p>平台目标仓库 ID：{{ pr.target_external_repo_id or '未知' }}</p>
+    <p>
+      来源提交 <code>{{ pr.source_oid or '未知' }}</code>
+    </p>
+    <p>
+      合并提交 <code>{{ pr.merge_oid or '未知' }}</code>
+    </p>
+    <p>合并时间 {{ pr.merged_at|date if pr.merged_at else '未知' }}</p>
+    <p>获取时间 {{ pr.fetched_at|date }}</p>
+    <p class="muted">历史记录独立于当前分支的提交关系。分支删除、重建或新增提交后，不自动代表当前分支内容。</p>
+    {% if pr.web_url|safe_url(repo.connection) %}
+      <a class="button"
+         href="{{ pr.web_url|safe_url(repo.connection) }}"
+         rel="noopener noreferrer"
+         target="_blank">平台原始记录 ↗</a>
+    {% endif %}
+  </section>
+  {% include 'repo_status.html' %}
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block title %}{{ project.name }}{% endblock %}
+{% block content %}
+  <header class="page-heading">
+    <div>
+      <p class="eyebrow">PROJECT / 项目</p>
+      <h1>{{ project.name }}</h1>
+      <p class="muted">{{ project.description or '集中查看仓库同步状态与分支关系' }}</p>
+    </div>
+    <a class="button" href="{{ query_url() }}">刷新缓存视图 ↻</a>
+  </header>
+  <div class="metrics">
+    <div>
+      <strong>{{ all_count }}</strong><span>项目仓库</span>
+    </div>
+    <div>
+      <strong>{{ total }}</strong><span>符合筛选</span>
+    </div>
+    <div>
+      <strong>{{ stale_count }}</strong><span>同步需关注</span>
+    </div>
+    <p>
+      比较对象始终明确显示。
+      <br>
+      计划目标与提交包含关系分别判断。
+    </p>
+  </div>
+  {% include 'filters.html' %}
+  <section class="panel repository-list">
+    <div class="section-heading">
+      <h2>仓库</h2>
+      <span class="muted">每页 50 个 · 展开后加载分支</span>
+    </div>
+    {% for repo in repositories %}
+      <article class="repository-row">
+        <div class="repo-summary">
+          <button type="button"
+                  class="expand quiet"
+                  aria-expanded="{{ 'true' if repo.id in query.expanded else 'false' }}"
+                  aria-controls="branches-{{ repo.id }}"
+                  data-repo-id="{{ repo.id }}"
+                  data-expanded="{{ 'true' if repo.id in query.expanded else 'false' }}"
+                  data-page="{{ query.branch_pages.get('bp_' ~ repo.id, 1) }}"
+                  aria-label="展开 {{ repo.full_name }} 的分支">▸</button>
+          <div class="repo-name">
+            <a href="/repositories/{{ repo.id }}">{{ repo.full_name }}</a><small>{{ repo.connection.name }} · {{ repo.connection.kind|upper }} <span class="badge">{{ repo.default_branch or '默认分支未知' }}</span></small>
+          </div>
+          <div class="repo-count">
+            {% if repo.git_synced_at %}
+              <strong>{{ branch_counts.get(repo.id, 0) }}</strong> 分支
+            {% else %}
+              <span class="badge">正在导入</span>
+            {% endif %}
+          </div>
+          <div class="sync-times">
+            <span>Git 同步 <time>{{ repo.git_synced_at|date }}</time>
+              {% if repo.sync_error %}<b class="error-dot">异常</b>{% endif %}
+              </span><span>API 同步 <time>{{ repo.api_synced_at|date }}</time>
+              {% if repo.api_error %}<b class="error-dot">异常</b>{% endif %}
+            </span>
+          </div>
+          <a class="small-link" href="/repositories/{{ repo.id }}/branches">分支列表 ↗</a>
+        </div>
+        <div id="branches-{{ repo.id }}"
+             class="branch-slot"
+             hidden
+             data-repo-id="{{ repo.id }}">
+          <p class="empty">正在加载分支…</p>
+        </div>
+      </article>
+    {% else %}
+      <div class="empty">
+        <h3>{{ '没有匹配的仓库' if all_count else '项目还没有仓库' }}</h3>
+        <p>{{ '调整分支筛选条件后重试。' if all_count else '请由管理员从平台连接选择并导入仓库。' }}</p>
+      </div>
+    {% endfor %}
+    <nav class="pagination" aria-label="仓库分页">
+      {% if query.page > 1 %}<a class="button" href="{{ query_url(page=query.page-1) }}">← 上一页</a>{% endif %}
+      <span>第 {{ query.page }} 页 · {{ total }} 个仓库</span>
+      {% if query.page*50 < total %}<a class="button" href="{{ query_url(page=query.page+1) }}">下一页 →</a>{% endif %}
+    </nav>
+  </section>
+{% endblock %}

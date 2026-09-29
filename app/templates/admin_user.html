@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block content %}
+  <p class="eyebrow">
+    <a href="/admin">管理工作台</a> / 用户
+  </p>
+  <h1>{{ '编辑用户' if person else '创建用户' }}</h1>
+  <section class="panel detail-section">
+    <form method="post"
+          action="{{ '/admin/users/' ~ person.id if person else '/admin/users' }}"
+          class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>
+        用户名
+        <input name="username"
+               value="{{ person.username if person else '' }}"
+               required
+               maxlength="150"
+               autocomplete="off">
+      </label>
+      <label>
+        {{ '新密码（留空保留原密码）' if person else '密码' }}
+        <input name="password"
+               type="password"
+               minlength="12"
+               maxlength="1024"
+               autocomplete="new-password"
+               {% if not person %}required{% endif %}>
+      </label>
+      <p class="help">密码至少 12 个字符。</p>
+      <div class="check-row">
+        <label>
+          <input type="checkbox"
+                 name="is_admin"
+                 {% if person and person.is_admin %}checked{% endif %}>
+          系统管理员
+        </label>
+        {% if person %}
+          <label>
+            <input type="checkbox"
+                   name="is_active"
+                   {% if person.is_active %}checked{% endif %}>
+            启用账号
+          </label>
+        {% endif %}
+      </div>
+      <button class="primary">保存用户</button>
+    </form>
+  </section>
+{% endblock %}
