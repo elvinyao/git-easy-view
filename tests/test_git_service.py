@@ -150,6 +150,34 @@ def test_commits_are_source_unique_and_limited(history):
     assert [item.oid for item in service.commits(second, base)] == [second, first]
 
 
+def test_commits_does_not_execute_configured_signature_verifier(history):
+    path, base = history
+    tree = git(path, "rev-parse", "HEAD^{tree}")
+    raw_commit = (
+        f"tree {tree}\nparent {base}\n"
+        "author Fixture <fixture@example.test> 1700000000 +0000\n"
+        "committer Fixture <fixture@example.test> 1700000000 +0000\n"
+        "gpgsig -----BEGIN PGP SIGNATURE-----\n"
+        " fake-signature\n"
+        " -----END PGP SIGNATURE-----\n"
+        "\nsigned commit\n"
+    )
+    signed_oid = subprocess.run(
+        ["git", "-C", str(path), "hash-object", "-t", "commit", "-w", "--stdin"],
+        input=raw_commit, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    git(path, "update-ref", "refs/heads/signed", signed_oid)
+    marker = path / "verifier-ran"
+    verifier = path / "verifier.sh"
+    verifier.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+    verifier.chmod(0o755)
+    git(path, "config", "log.showSignature", "true")
+    git(path, "config", "gpg.program", str(verifier))
+
+    assert [item.oid for item in GitService(path).commits(signed_oid, base)] == [signed_oid]
+    assert not marker.exists()
+
+
 def test_bare_clone_and_force_prune_fetch_all_branches(history, tmp_path):
     source, base = history
     git(source, "branch", "removed")

@@ -223,7 +223,7 @@ class GitService:
         source = self.resolve(source_oid)
         target = self.resolve(target_oid)
         _, output = self._git(
-            "log", "--topo-order", f"--max-count={limit}",
+            "log", "--no-show-signature", "--topo-order", f"--max-count={limit}",
             "--format=%H%x00%an%x00%aI%x00%s", source, "--not", target,
         )
         commits = []
