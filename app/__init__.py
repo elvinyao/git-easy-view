@@ -1,0 +1,1 @@
+"""Git Easy View application."""

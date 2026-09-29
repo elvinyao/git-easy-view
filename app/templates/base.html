@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Git Easy View</title>
+</head>
+<body>
+  <header><strong>Git Easy View</strong> <span>{{ user.username }}</span>
+    <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">退出</button></form>
+  </header>
+  <main><h1>项目</h1>
+    {% if projects %}<ul>{% for project in projects %}<li>{{ project.name }}</li>{% endfor %}</ul>{% else %}<p>暂无可查看的项目。</p>{% endif %}
+  </main>
+</body>
+</html>
