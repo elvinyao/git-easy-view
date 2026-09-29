@@ -6,13 +6,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="GEV_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="GEV_", env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     production: bool = True
     database_url: str | None = None
     session_secret: str | None = None
     credential_key: str | None = None
     redis_url: str = "redis://localhost:6379/0"
+    cache_root: str = "./data/git"
+    queue_name: str = "git-sync"
+    job_timeout_seconds: int = 3600
+    scheduler_interval_seconds: int = 15
+    heartbeat_interval_seconds: int = 15
     cookie_secure: bool | None = None
     session_max_age: int = 60 * 60 * 12
 

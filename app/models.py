@@ -115,6 +115,7 @@ class Repository(Base):
     snapshot_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     api_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     requested_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    role_prefixes: Mapped[dict] = mapped_column(JSON, default=lambda: {"release": ["release/"], "feature": ["feature/"]}, nullable=False)
     connection: Mapped[PlatformConnection] = relationship(back_populates="repositories")
     projects: Mapped[list["ProjectRepository"]] = relationship(back_populates="repository", cascade="all, delete-orphan")
     branches: Mapped[list["Branch"]] = relationship(back_populates="repository", cascade="all, delete-orphan")
@@ -140,6 +141,7 @@ class Branch(Base):
     commit_time: Mapped[datetime | None] = mapped_column(UTCDateTime())
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     snapshot_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source_candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     repository: Mapped[Repository] = relationship(back_populates="branches")
     config: Mapped["BranchConfig | None"] = relationship(back_populates="branch", foreign_keys="BranchConfig.branch_id", uselist=False, cascade="all, delete-orphan")
 
@@ -203,6 +205,8 @@ class SyncJob(Base):
     __tablename__ = "sync_jobs"
     id: Mapped[int] = mapped_column(primary_key=True)
     repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(32), default="sync", nullable=False)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     requested_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
     history_since: Mapped[datetime | None] = mapped_column(UTCDateTime())
