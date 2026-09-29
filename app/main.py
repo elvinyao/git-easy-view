@@ -45,22 +45,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             set_session(response, request, None, csrf)
         return response
 
-    @app.post("/login")
-    async def login(request: Request, session: Session = Depends(get_session)):
+    async def login_credentials(request: Request) -> tuple[str, str]:
         await verify_csrf(request)
         form = await request.form()
-        username = str(form.get("username", ""))
-        password = str(form.get("password", ""))
-        user = session.scalar(select(User).where(User.username == username))
-        if user is None or not user.is_active or not user.check_password(password):
-            return templates.TemplateResponse(
-                request,
-                "login.html",
-                {"csrf_token": session_data(request)["csrf"], "error": "Invalid username or password"},
-                status_code=401,
-            )
+        return str(form.get("username", "")), str(form.get("password", ""))
+
+    @app.post("/login")
+    def login(request: Request, credentials: tuple[str, str] = Depends(login_credentials)):
+        username, password = credentials
+        with Session(app.state.engine) as session:
+            user = session.scalar(select(User).where(User.username == username))
+            if user is None or not user.is_active or not user.check_password(password):
+                return templates.TemplateResponse(
+                    request,
+                    "login.html",
+                    {"csrf_token": session_data(request)["csrf"], "error": "Invalid username or password"},
+                    status_code=401,
+                )
+            user_id = user.id
         response = RedirectResponse("/", status_code=303)
-        set_session(response, request, user.id)
+        set_session(response, request, user_id)
         return response
 
     @app.post("/logout")

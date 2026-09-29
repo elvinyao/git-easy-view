@@ -1,8 +1,11 @@
 import re
+import asyncio
 from datetime import timedelta
 
 from fastapi import Depends
 import pytest
+from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import current_user, require_project_access
@@ -139,3 +142,43 @@ def test_platform_token_encryption_does_not_store_plaintext(app):
     ciphertext = settings.encrypt_token(token)
     assert token not in ciphertext
     assert settings.decrypt_token(ciphertext) == token
+
+
+def test_sqlite_rejects_orphan_project_membership(app):
+    with Session(app.state.engine) as session:
+        session.add(ProjectMember(project_id=987654, user_id=987654))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_login_database_and_hash_run_outside_event_loop(app, client, user, monkeypatch):
+    csrf = csrf_from(client.get("/login"))
+    observed = {"query": False, "hash": False}
+    original_check_password = User.check_password
+
+    def assert_no_loop(label):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            observed[label] = True
+
+    def check_password(self, password):
+        assert_no_loop("hash")
+        return original_check_password(self, password)
+
+    def before_cursor_execute(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "users" in statement:
+            assert_no_loop("query")
+
+    monkeypatch.setattr(User, "check_password", check_password)
+    event.listen(app.state.engine, "before_cursor_execute", before_cursor_execute)
+    try:
+        response = client.post(
+            "/login",
+            data={"username": "alice", "password": "correct horse battery staple", "csrf_token": csrf},
+            follow_redirects=False,
+        )
+    finally:
+        event.remove(app.state.engine, "before_cursor_execute", before_cursor_execute)
+    assert response.status_code == 303
+    assert observed == {"query": True, "hash": True}
