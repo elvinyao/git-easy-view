@@ -9,7 +9,15 @@ class GitLabProvider(Provider):
         data = self._json(self._request(self.api_root + "/user"))
         if not isinstance(data, dict) or not data.get("id"):
             raise ProviderError("Provider returned an invalid identity")
-        return {"external_user_id": identity(data["id"], "user identity"), "username": data.get("username")}
+        version = None
+        try:
+            details = self._json(self._request(self.api_root + "/version"))
+            if isinstance(details, dict) and isinstance(details.get("version"), str):
+                version = details["version"]
+        except ProviderError:
+            pass  # Older instances and restricted tokens may not expose /version.
+        return {"external_user_id": identity(data["id"], "user identity"), "username": data.get("username"),
+                "version": version, "capabilities": {}}
 
     def repositories(self) -> list[Repo]:
         result = []

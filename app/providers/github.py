@@ -6,10 +6,12 @@ from .base import PR, Repo, Provider, ProviderError, identity, optional_identity
 
 class GitHubProvider(Provider):
     def check(self) -> dict:
-        data = self._json(self._request(self.api_root + "/user"))
+        response = self._request(self.api_root + "/user")
+        data = self._json(response)
         if not isinstance(data, dict) or not data.get("id"):
             raise ProviderError("Provider returned an invalid identity")
-        return {"external_user_id": identity(data["id"], "user identity"), "login": data.get("login")}
+        return {"external_user_id": identity(data["id"], "user identity"), "login": data.get("login"),
+                "version": response.headers.get("x-github-enterprise-version"), "capabilities": {}}
 
     def repositories(self) -> list[Repo]:
         result = []
@@ -43,6 +45,8 @@ class GitHubProvider(Provider):
         result = []
         for state in ("open", "closed"):
             params = {"state": state, "sort": "updated", "direction": "desc", "per_page": 100}
+            previous = None
+            ordered = True
             for page in self._pages(path, params):
                 for raw in page:
                     pr = self._pr(raw)
@@ -50,8 +54,14 @@ class GitHubProvider(Provider):
                         raise ProviderError("Provider returned a PR outside requested state")
                     if state == "closed" and pr.state == "open":
                         raise ProviderError("Provider returned a PR outside requested state")
+                    if state == "closed":
+                        if pr.updated_at is None or (previous is not None and pr.updated_at > previous):
+                            ordered = False
+                        previous = pr.updated_at
                     if state == "open" or since is None or pr.updated_at is None or pr.updated_at >= since:
                         result.append(pr)
+                if state == "closed" and since is not None and ordered and page and previous is not None and previous < since:
+                    break
         return result
 
     def _repo(self, raw) -> Repo:

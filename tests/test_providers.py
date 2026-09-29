@@ -176,10 +176,13 @@ def test_check_uses_identity_endpoint_without_version_dependency():
         seen = []
         def respond(req):
             seen.append(req.url.path)
+            if req.url.path.endswith("/version"):
+                return httpx.Response(404, json={"message": "unsupported"})
             return httpx.Response(200, json={"id": 77, "login": "alice", "username": "alice"})
         result = provider(kind, root, respond).check()
         assert result["external_user_id"] == "77"
-        assert seen == [path]
+        assert result["version"] is None
+        assert seen == ([path] if kind == "github" else [path, "/corp/api/v4/version"])
 
 
 def test_company_ca_bundle_is_passed_to_http_client(monkeypatch):
@@ -254,3 +257,99 @@ def test_full_page_without_pagination_headers_fetches_next_page(kind, root):
         return httpx.Response(200, json=items)
     assert len(provider(kind, root, respond).repositories()) == 101
     assert seen == [None, "2"]
+
+
+def test_github_secondary_limit_body_without_headers_is_typed_and_sanitized():
+    errors = import_module("app.providers.base")
+    def respond(req):
+        return httpx.Response(403, headers={"X-RateLimit-Remaining": "42"},
+                              json={"message": "You have exceeded a secondary rate limit. secret-detail"})
+    with pytest.raises(errors.RateLimitError) as exc:
+        provider("github", "https://github.com", respond).check()
+    assert exc.value.retry_after >= 60
+    assert "secret-detail" not in str(exc.value)
+
+
+def test_check_reports_available_version_without_requiring_it():
+    def github(req):
+        return httpx.Response(200, headers={"X-GitHub-Enterprise-Version": "3.15.0"}, json={"id": 1})
+    result = provider("github", "https://gh.example", github).check()
+    assert result["version"] == "3.15.0"
+    assert "capabilities" in result
+
+    def gitlab(req):
+        if req.url.path.endswith("/version"):
+            return httpx.Response(200, json={"version": "17.8.0", "revision": "abc"})
+        return httpx.Response(200, json={"id": 1})
+    assert provider("gitlab", "https://gitlab.example", gitlab).check()["version"] == "17.8.0"
+    def gitlab_no_version(req):
+        if req.url.path.endswith("/version"):
+            return httpx.Response(403, json={"message": "forbidden"})
+        return httpx.Response(200, json={"id": 1})
+    assert provider("gitlab", "https://gitlab.example", gitlab_no_version).check()["version"] is None
+
+
+def test_github_closed_history_stops_after_ordered_cutoff():
+    seen = []
+    def respond(req):
+        if req.url.path == "/repos/org/repo":
+            return httpx.Response(200, json=gh_repo())
+        state = req.url.params["state"]
+        seen.append((state, req.url.params.get("page")))
+        if state == "open":
+            return httpx.Response(200, json=[])
+        if req.url.params.get("page"):
+            raise AssertionError("older history should not be fetched")
+        return httpx.Response(200, headers={"Link": '<https://api.github.com/repos/org/repo/pulls?state=closed&page=2>; rel="next"'},
+                              json=[{"id": 1, "title": "old", "html_url": "https://github.com/org/repo/pull/1", "state": "closed", "head": {}, "base": {}, "updated_at": "2020-01-01T00:00:00Z"}])
+    p = provider("github", "https://github.com", respond)
+    p.max_pages = 2
+    assert p.pull_requests("1", datetime(2025, 1, 1, tzinfo=timezone.utc), full_name="org/repo") == []
+    assert seen == [("open", None), ("closed", None)]
+
+
+def test_github_closed_history_missing_time_keeps_paging():
+    seen = []
+    def respond(req):
+        if req.url.path == "/repos/org/repo":
+            return httpx.Response(200, json=gh_repo())
+        state = req.url.params["state"]
+        if state == "open":
+            return httpx.Response(200, json=[])
+        page = req.url.params.get("page", "1")
+        seen.append(page)
+        item = {"id": int(page), "title": "unknown update", "html_url": f"https://github.com/org/repo/pull/{page}", "state": "closed", "head": {}, "base": {}}
+        headers = {"Link": '<https://api.github.com/repos/org/repo/pulls?state=closed&page=2>; rel="next"'} if page == "1" else {}
+        return httpx.Response(200, headers=headers, json=[item])
+    prs = provider("github", "https://github.com", respond).pull_requests("1", datetime(2025, 1, 1, tzinfo=timezone.utc), full_name="org/repo")
+    assert [pr.external_id for pr in prs] == ["1", "2"]
+    assert seen == ["1", "2"]
+
+
+def test_github_closed_history_disordered_page_disables_cutoff():
+    seen = []
+    def pr(id, updated):
+        return {"id": id, "title": "history", "html_url": f"https://github.com/org/repo/pull/{id}",
+                "state": "closed", "head": {}, "base": {}, "updated_at": updated}
+    def respond(req):
+        if req.url.path == "/repos/org/repo":
+            return httpx.Response(200, json=gh_repo())
+        if req.url.params["state"] == "open":
+            return httpx.Response(200, json=[])
+        page = req.url.params.get("page", "1")
+        seen.append(page)
+        if page == "1":
+            return httpx.Response(200, headers={"Link": '<https://api.github.com/repos/org/repo/pulls?state=closed&page=2>; rel="next"'},
+                                  json=[pr(1, "2020-01-01T00:00:00Z"), pr(2, "2026-01-01T00:00:00Z")])
+        return httpx.Response(200, json=[pr(3, "2025-06-01T00:00:00Z")])
+    prs = provider("github", "https://github.com", respond).pull_requests("1", datetime(2025, 1, 1, tzinfo=timezone.utc), full_name="org/repo")
+    assert [pr.external_id for pr in prs] == ["2", "3"]
+    assert seen == ["1", "2"]
+
+
+def test_encoded_path_traversal_is_rejected_for_remote_urls():
+    errors = import_module("app.providers.base")
+    for path in ("/corp/%2e%2e/outside.git", "/corp/%252e%252e/outside.git"):
+        with pytest.raises(errors.ProviderError):
+            errors.validate_remote_url("https://git.example" + path, "https://git.example/corp")
+    assert errors.validate_remote_url("https://git.example/corp/group%2Fsub/repo.git", "https://git.example/corp")

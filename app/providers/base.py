@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import httpx
 
@@ -87,6 +87,17 @@ def timestamp(value: Any) -> datetime | None:
     return result.astimezone(timezone.utc)
 
 
+def _safe_path(path: str) -> None:
+    for _ in range(8):
+        if "\\" in path or any(part in (".", "..") for part in path.split("/")) or any(ord(c) < 32 for c in path):
+            raise ProviderError("Invalid provider URL path")
+        decoded = unquote(path)
+        if decoded == path:
+            return
+        path = decoded
+    raise ProviderError("Invalid provider URL path")
+
+
 def _url_parts(url: str) -> tuple[str, str, str]:
     if not isinstance(url, str):
         raise ProviderError("Invalid provider URL")
@@ -99,8 +110,7 @@ def _url_parts(url: str) -> tuple[str, str, str]:
         raise ProviderError("Provider URL must be an HTTPS instance URL")
     origin = f"https://{parsed.hostname.lower()}" + (f":{port}" if port and port != 443 else "")
     path = parsed.path.rstrip("/")
-    if "\\" in path or "/../" in path or path.endswith("/..") or "/./" in path or "%2f" in path.lower():
-        raise ProviderError("Invalid provider URL path")
+    _safe_path(path)
     return origin, path, parsed.hostname.lower()
 
 
@@ -160,8 +170,9 @@ class Provider:
             raise ProviderError("Unsafe provider pagination URL") from exc
         api = urlsplit(self.api_root)
         if (parsed.scheme != "https" or parsed.hostname != api.hostname or port != api.port
-                or parsed.username or parsed.password or parsed.fragment or "\\" in parsed.path):
+                or parsed.username or parsed.password or parsed.fragment):
             raise ProviderError("Unsafe provider pagination URL")
+        _safe_path(parsed.path)
         if not parsed.path.startswith(api.path.rstrip("/") + "/") and not (not api.path and parsed.path.startswith("/")):
             raise ProviderError("Unsafe provider pagination URL")
         if expected_path and parsed.path != expected_path:
@@ -182,7 +193,10 @@ class Provider:
             raise ProviderError("Provider redirect rejected")
         if response.status_code == 401:
             raise AuthenticationError("Provider credential rejected")
-        if response.status_code == 429 or (response.status_code == 403 and (
+        secondary_limit = (response.status_code == 403 and self.kind == "github" and
+                           ("secondary rate limit" in response.content[:4096].decode("utf-8", "ignore").lower()
+                            or "abuse detection" in response.content[:4096].decode("utf-8", "ignore").lower()))
+        if response.status_code == 429 or secondary_limit or (response.status_code == 403 and (
                 response.headers.get("x-ratelimit-remaining") == "0" or "retry-after" in response.headers)):
             retry_after = response.headers.get("retry-after")
             retry_at = None
@@ -197,6 +211,8 @@ class Provider:
                         pass
             if response.headers.get("x-ratelimit-reset", "").isdecimal():
                 retry_at = datetime.fromtimestamp(int(response.headers["x-ratelimit-reset"]), timezone.utc)
+            if secondary_limit and seconds is None:
+                seconds = 60
             raise RateLimitError(seconds, retry_at)
         if response.status_code == 403:
             raise AuthenticationError("Provider access forbidden")
