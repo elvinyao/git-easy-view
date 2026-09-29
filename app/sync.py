@@ -302,10 +302,14 @@ def execute_job(job_id, *, settings, provider_factory=get_provider, local_source
             repository_id = job.repository_id
         with repository_lock(settings, repository_id):
             with Session(engine, expire_on_commit=False) as session:
-                job = session.get(SyncJob, job_id)
-                if job.status in TERMINAL or (job.retry_at and job.retry_at > utc_now()):
-                    return
+                # enqueue_sync merges backfill windows while holding this row
+                # lock. Read the job only after acquiring it, so a request
+                # merged just before we start cannot be lost to an identity-map
+                # copy loaded before the lock.
                 repo = locked_repository(session, repository_id)
+                job = session.get(SyncJob, job_id)
+                if job is None or job.status in TERMINAL or (job.retry_at and job.retry_at > utc_now()):
+                    return
                 connection = session.get(PlatformConnection, repo.connection_id)
                 if job.kind == "sync" and job.generation != repo.requested_generation:
                     job.status, job.finished_at = "superseded", utc_now()

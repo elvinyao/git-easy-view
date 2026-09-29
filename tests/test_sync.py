@@ -347,3 +347,23 @@ def test_single_main_branch_has_identical_comparison(system, remote):
     with Session(system.engine) as session:
         row = session.scalar(select(Comparison))
         assert row is not None and row.state == "identical" and row.ahead == row.behind == 0
+
+
+def test_worker_reads_backfill_merged_before_repository_lock(system, remote, monkeypatch):
+    provider = Provider()
+    requested = utc_now() - timedelta(days=400)
+    original_lock = sync.locked_repository
+    merged_ids = []
+
+    def merge_before_lock(session, repository_id):
+        if not merged_ids:
+            merged_ids.append(enqueue(system, history_since=requested).id)
+        return original_lock(session, repository_id)
+
+    monkeypatch.setattr(sync, "locked_repository", merge_before_lock)
+    job = run(system, remote, provider)
+    assert merged_ids == [job.id]
+    assert provider.since == [requested]
+    with Session(system.engine) as session:
+        assert session.get(SyncJob, job.id).status == "succeeded"
+        assert session.get(Repository, system.repo_id).api_coverage_since == requested
