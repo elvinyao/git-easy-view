@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{ locale }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>请检查表单 · Git Easy View</title>
+    <title>{{ t('请检查表单 · Git Easy View') }}</title>
     <link rel="stylesheet" href="/static/app.css">
   </head>
   <body class="login-body">
     <main class="login-card">
-      <h1>请检查表单内容</h1>
+      <h1>{{ t('请检查表单内容') }}</h1>
       <p class="notice danger" role="alert">{{ message }}</p>
-      <p class="muted">返回上一页修正后重新提交。密码和令牌不会回显。</p>
-      <a class="button" href="/admin">返回管理工作台</a>
+      <p class="muted">{{ t('返回上一页修正后重新提交。密码和令牌不会回显。') }}</p>
+      <a class="button" href="/admin">{{ t('返回管理工作台') }}</a>
     </main>
   </body>
 </html>

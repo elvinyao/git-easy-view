@@ -96,7 +96,7 @@ def pages(app, client, user, tmp_path):
 
 def test_project_list_and_lazy_branches(client, pages):
     home = client.get("/")
-    assert "产品研发" in home.text and "机密项目" not in home.text
+    assert "产品研发" in home.text and "机密项目" in home.text
     response = client.get(
         f"/projects/{pages['project']}?expanded={pages['repo']}&bp_{pages['repo']}=2&q=login"
     )
@@ -166,7 +166,8 @@ def test_pagination_and_filters(client, app, pages):
     )
 
 
-def test_member_comparison_local_queue_and_status(client, app, pages):
+def test_admin_comparison_local_queue_and_status(client, app, admin_pages):
+    pages = admin_pages
     path = f"/repositories/{pages['repo']}/branches/{pages['feature']}/compare"
     assert client.post(path, data={"target_id": pages["main"]}).status_code == 403
     response = client.post(
@@ -555,7 +556,7 @@ def test_admin_invalid_form_renders_useful_page_without_secrets(
     assert "never-render-me" not in response.text
 
 
-def test_repository_pr_navigation_and_shared_repo_does_not_expose_hidden_project(
+def test_repository_pr_navigation_and_shared_public_projects(
     client, app, pages
 ):
     with Session(app.state.engine) as s:
@@ -565,7 +566,7 @@ def test_repository_pr_navigation_and_shared_repo_does_not_expose_hidden_project
         s.commit()
     response = client.get(f"/repositories/{pages['repo']}")
     assert f'/repositories/{pages["repo"]}/pull-requests' in response.text
-    assert "机密项目" not in response.text
+    assert "机密项目" in response.text
 
 
 def test_repository_pagination_and_cross_repository_filter(client, app, pages):
@@ -590,11 +591,11 @@ def test_repository_pagination_and_cross_repository_filter(client, app, pages):
         s.commit()
     first = client.get(f"/projects/{pages['project']}")
     second = client.get(f"/projects/{pages['project']}?page=2")
-    assert first.text.count('class="repository-row"') == 50
-    assert second.text.count('class="repository-row"') == 6
+    assert first.text.count('data-overview-repository=') == 50
+    assert second.text.count('data-overview-repository=') == 6
     assert (
         client.get(f"/projects/{pages['project']}?role=feature&q=login").text.count(
-            'class="repository-row"'
+            'data-overview-repository='
         )
         == 1
     )
@@ -656,7 +657,8 @@ def test_import_cannot_publish_over_connection_rotation(client, app, admin_pages
         )
 
 
-def test_member_comparison_is_audited_and_rejects_arbitrary_oids(client, app, pages):
+def test_admin_comparison_is_audited_and_rejects_arbitrary_oids(client, app, admin_pages):
+    pages = admin_pages
     path = f"/repositories/{pages['repo']}/branches/{pages['feature']}/compare"
     assert post_form(client, path, target_id="f" * 40).status_code == 404
     assert post_form(client, path, target_id=pages["main"]).status_code == 303
@@ -669,7 +671,8 @@ def test_member_comparison_is_audited_and_rejects_arbitrary_oids(client, app, pa
         )
 
 
-def test_zero_branch_id_is_not_coerced_to_first_branch(client, pages):
+def test_zero_branch_id_is_not_coerced_to_first_branch(client, admin_pages):
+    pages = admin_pages
     path = f"/repositories/{pages['repo']}/branches/{pages['feature']}/compare"
     assert post_form(client, path, target_id="0").status_code == 404
 
@@ -722,8 +725,9 @@ def test_admin_successful_attach_and_input_validation(client, app, admin_pages):
 
 
 def test_read_pages_never_invoke_provider(client, app, pages):
+    client.cookies.clear()
     def forbidden(*args, **kwargs):
-        raise AssertionError("Member read called remote API")
+        raise AssertionError("Public read called remote API")
 
     app.state.provider_factory = forbidden
     for path in (

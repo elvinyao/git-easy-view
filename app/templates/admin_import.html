@@ -1,16 +1,16 @@
 {% extends 'base.html' %}
 {% block content %}
   <p class="eyebrow">
-    <a href="/admin/connections/{{ connection.id }}">{{ connection.name }}</a> / 仓库导入
+    <a href="/admin/connections/{{ connection.id }}">{{ connection.name }}</a> {{ t('/ 仓库导入') }}
   </p>
-  <h1>选择仓库</h1>
-  <p class="muted">每次最多 50 个。提交时重新向平台确认仓库身份与地址；已导入仓库会复用分析副本。</p>
+  <h1>{{ t('选择仓库') }}</h1>
+  <p class="muted">{{ t('每次最多 50 个。提交时重新向平台确认仓库身份与地址；已导入仓库会复用分析副本。') }}</p>
   <section class="panel detail-section">
     <form method="post" action="/admin/repositories/import">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="connection_id" value="{{ connection.id }}">
       <label>
-        导入到项目
+        {{ t('导入到项目') }}
         <select name="project_id" required>
           {% for project in projects %}<option value="{{ project.id }}">{{ project.name }}</option>{% endfor %}
         </select>
@@ -19,9 +19,9 @@
         <table>
           <thead>
             <tr>
-              <th>选择仓库</th>
-              <th>默认分支</th>
-              <th>平台 ID</th>
+              <th>{{ t('选择仓库') }}</th>
+              <th>{{ t('默认分支') }}</th>
+              <th>{{ t('平台 ID') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -33,24 +33,24 @@
                     <span>{{ remote.full_name }}</span>
                   </label>
                 </td>
-                <td>{{ remote.default_branch or '未知' }}</td>
+                <td>{{ remote.default_branch or t('未知') }}</td>
                 <td>{{ remote.external_id }}</td>
               </tr>
             {% else %}
               <tr>
-                <td colspan="3">没有可导入的仓库。</td>
+                <td colspan="3">{{ t('没有可导入的仓库。') }}</td>
               </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-      <button class="primary" {% if not projects %}disabled{% endif %}>导入选中仓库</button>
-      {% if not projects %}<p>请先创建项目。</p>{% endif %}
+      <button class="primary" {% if not projects %}disabled{% endif %}>{{ t('导入选中仓库') }}</button>
+      {% if not projects %}<p>{{ t('请先创建项目。') }}</p>{% endif %}
     </form>
     <nav class="pagination">
-      {% if query.page>1 %}<a class="button" href="{{ query_url(page=query.page-1) }}">上一页</a>{% endif %}
-      <span>第 {{ query.page }} 页 · {{ total }} 个仓库</span>
-      {% if query.page*50<total %}<a class="button" href="{{ query_url(page=query.page+1) }}">下一页</a>{% endif %}
+      {% if query.page>1 %}<a class="button" href="{{ query_url(page=query.page-1) }}">{{ t('上一页') }}</a>{% endif %}
+      <span>{{ t('第 {page} 页 · {total} 个仓库', page=query.page, total=total) }}</span>
+      {% if query.page*50<total %}<a class="button" href="{{ query_url(page=query.page+1) }}">{{ t('下一页') }}</a>{% endif %}
     </nav>
   </section>
 {% endblock %}

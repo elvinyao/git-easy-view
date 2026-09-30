@@ -1,0 +1,11 @@
+<form method="get" action="/login" class="language-picker">
+  <label>
+    {{ t('语言') }}
+    <select name="lang" aria-label="{{ t('语言') }}">
+      {% for code, label in locales.items() %}
+        <option value="{{ code }}" {% if locale == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">{{ t('切换语言') }}</button>
+</form>

@@ -15,7 +15,7 @@ import signal
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -71,6 +71,17 @@ class CommitInfo:
     author_name: str
     authored_at: datetime
     subject: str
+
+
+@dataclass(frozen=True)
+class LogCommit(CommitInfo):
+    parent_oids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FileChange:
+    path: str
+    status: str
 
 
 def _environment(extra: dict[str, str] | None, *, allow_file_transport: bool) -> dict[str, str]:
@@ -241,6 +252,51 @@ class GitService:
             oid, author, timestamp, subject = line.split("\x00", 3)
             commits.append(CommitInfo(oid, author, datetime.fromisoformat(timestamp), subject))
         return commits
+
+    def commit_subjects(self, head_oids: list[str]) -> dict[str, str]:
+        """Read only the requested snapshot tips, without walking their history."""
+        if len(head_oids) > MAX_COMMITS or any(not OID.fullmatch(oid) for oid in head_oids):
+            raise InvalidRef("Commit subjects require bounded immutable snapshot OIDs")
+        heads = list(dict.fromkeys(head_oids))
+        if not heads:
+            return {}
+        _, output = self._git(
+            "log", "--no-show-signature", "--no-walk=unsorted", f"--max-count={len(heads)}",
+            "--format=%H%x00%s", *heads, "--",
+        )
+        return dict(line.split("\x00", 1) for line in output.split("\n") if line)
+
+    def history(self, head_oids: list[str], limit: int = 100) -> list[LogCommit]:
+        """Topological history of immutable snapshot heads; never fetch a remote."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= MAX_COMMITS:
+            raise ValueError(f"limit must be between 1 and {MAX_COMMITS}")
+        if len(head_oids) > MAX_BRANCHES or any(not OID.fullmatch(oid) for oid in head_oids):
+            raise InvalidRef("History requires bounded immutable snapshot OIDs")
+        heads = list(dict.fromkeys(head_oids))
+        if not heads:
+            return []
+        _, output = self._git(
+            "log", "--no-show-signature", "--topo-order", f"--max-count={limit}",
+            "--format=%H%x00%P%x00%an%x00%aI%x00%s", *heads, "--",
+        )
+        entries = []
+        for line in output.split("\n"):
+            if line:
+                oid, parents, author, timestamp, subject = line.split("\x00", 4)
+                entries.append(LogCommit(oid, author, datetime.fromisoformat(timestamp).astimezone(timezone.utc), subject, tuple(parents.split())))
+        return entries
+
+    def changed_files(self, commit: LogCommit) -> list[FileChange]:
+        """Names/statuses against the first parent, including root commit files."""
+        if any(not OID.fullmatch(oid) for oid in (commit.oid, *commit.parent_oids)):
+            raise InvalidRef("File changes require immutable commit OIDs")
+        flags = ("--no-ext-diff", "--no-textconv", "--no-renames", "--name-status", "-z")
+        if commit.parent_oids:
+            _, output = self._git("diff", *flags, commit.parent_oids[0], commit.oid, "--")
+        else:
+            _, output = self._git("diff-tree", "--root", "--no-commit-id", "-r", *flags, commit.oid, "--")
+        fields = output.split("\x00")
+        return [FileChange(fields[index + 1], fields[index][0]) for index in range(0, len(fields) - 1, 2)]
 
 
 def _validate_transport(source: str, *, allow_file_transport: bool) -> None:

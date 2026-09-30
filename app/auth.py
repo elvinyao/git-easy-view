@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.models import Project, ProjectMember, ProjectRepository, Repository, User
+from app.models import Project, ProjectRepository, Repository, User
 
 
 SESSION_COOKIE = "gev_session"
@@ -58,11 +58,16 @@ async def verify_csrf(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
 
 
-def current_user(request: Request, session: Session = Depends(get_session)) -> User:
+def optional_user(request: Request, session: Session = Depends(get_session)) -> User | None:
+    """Resolve a valid account without requiring a session for public reads."""
     data = session_data(request)
     user_id = data["user_id"] if data else None
     user = session.get(User, user_id) if user_id is not None else None
-    if user is None or not user.is_active:
+    return user if user is not None and user.is_active else None
+
+
+def current_user(user: User | None = Depends(optional_user)) -> User:
+    if user is None:
         raise HTTPException(status_code=303, headers={"Location": "/login"})
     return user
 
@@ -76,36 +81,25 @@ def require_admin(user: User = Depends(current_user)) -> User:
     return user
 
 
-def require_project_access(session: Session, user: User, project_id: int) -> Project:
+def require_project_access(session: Session, user: User | None, project_id: int) -> Project:
+    """Projects are public dashboards; their configuration uses require_admin."""
     project = session.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404)
-    if not user.is_admin:
-        membership = session.scalar(
-            select(ProjectMember.id).where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == user.id,
-            )
-        )
-        if membership is None:
-            raise HTTPException(status_code=404)
     return project
 
 
-def require_repository_access(session: Session, user: User, repository_id: int) -> Repository:
+def require_repository_access(session: Session, user: User | None, repository_id: int) -> Repository:
+    """Publish only project-linked repositories outside the administration area."""
     repository = session.get(Repository, repository_id)
     if repository is None:
         raise HTTPException(status_code=404)
-    if not user.is_admin:
-        grant = session.scalar(
+    if not (user and user.is_admin):
+        linked = session.scalar(
             select(ProjectRepository.id)
-            .join(ProjectMember, ProjectMember.project_id == ProjectRepository.project_id)
-            .where(
-                ProjectRepository.repository_id == repository_id,
-                ProjectMember.user_id == user.id,
-            )
+            .where(ProjectRepository.repository_id == repository_id)
             .limit(1)
         )
-        if grant is None:
+        if linked is None:
             raise HTTPException(status_code=404)
     return repository

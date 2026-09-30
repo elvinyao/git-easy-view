@@ -1,6 +1,6 @@
 x-app: &app
   build: .
-  image: git-easy-view:local
+  image: ${GEV_APP_IMAGE:-git-easy-view:local}
   env_file: ${GEV_ENV_FILE:-./runtime/local.env}
   volumes:
     - git-cache:/data/git

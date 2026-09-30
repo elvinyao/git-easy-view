@@ -1,29 +1,28 @@
-"""Shared server-rendered view helpers; no network calls on member reads."""
+"""Shared server-rendered view helpers; no network calls on dashboard reads."""
 
-from pathlib import Path
 from dataclasses import dataclass
 from types import SimpleNamespace
 from urllib.parse import urlencode, urlsplit
 
 from fastapi import HTTPException, Request
-from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.auth import session_data, verify_csrf
+from app.i18n import create_templates, translate
 from app.models import (
     Branch,
     Comparison,
     PlatformConnection,
     Project,
-    ProjectMember,
     PullRequest,
     utc_now,
 )
 from app.relations import BranchRef, PullRequestRef, TargetRef, planned_targets
 from app.sync import branch_role
 
-templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates = create_templates()
 STATES = {
     "identical": "相同",
     "contained": "提交已包含",
@@ -62,10 +61,14 @@ def safe_url(value, connection=None):
 
 
 templates.env.filters["safe_url"] = safe_url
-templates.env.filters["date"] = lambda value: (
-    value.strftime("%Y-%m-%d %H:%M UTC") if value else "尚未同步"
-)
-templates.env.globals.update(states=STATES, roles=ROLES)
+
+
+@pass_context
+def date_label(context, value):
+    return value.strftime("%Y-%m-%d %H:%M UTC") if value else context["t"]("尚未同步")
+
+
+templates.env.filters["date"] = date_label
 
 
 def number(value, default=1, maximum=10000):
@@ -89,6 +92,7 @@ def query_state(request):
         role=q.get("role", "") if q.get("role") in ROLES else "",
         relation=q.get("relation", "") if q.get("relation") in STATES else "",
         page=number(q.get("page")),
+        density="compact" if q.get("density") == "compact" else "full",
         expanded=expanded - {0},
         branch_pages={
             key: number(value)
@@ -102,6 +106,10 @@ def query_url(request, **changes):
     state = query_state(request)
     values = {k: state[k] for k in ("q", "role", "relation", "page")}
     values.update(state["branch_pages"])
+    if "lang" in request.query_params:
+        values["lang"] = request.state.locale
+    if request.query_params.get("density") == "compact":
+        values["density"] = "compact"
     values["expanded"] = ",".join(str(x) for x in sorted(state["expanded"]))
     target = number(request.query_params.get("target_id"), 0, 2**31 - 1)
     if target:
@@ -111,10 +119,7 @@ def query_url(request, **changes):
 
 
 def visible_projects(session, user):
-    stmt = select(Project).order_by(Project.name)
-    if not user.is_admin:
-        stmt = stmt.join(ProjectMember).where(ProjectMember.user_id == user.id)
-    return session.scalars(stmt).all()
+    return session.scalars(select(Project).order_by(Project.name)).all()
 
 
 @dataclass(frozen=True)
@@ -208,12 +213,15 @@ def summarize_statuses(statuses):
 
 
 def render(request, template, session, user, *, status_code=200, **context):
+    data = session_data(request)
     base = dict(
         user=user,
         projects=visible_projects(session, user),
-        csrf_token=session_data(request)["csrf"],
+        csrf_token=data["csrf"] if data else "",
         query=query_state(request),
         query_url=lambda **changes: query_url(request, **changes),
+        states={key: translate(request.state.locale, value) for key, value in STATES.items()},
+        roles={key: translate(request.state.locale, value) for key, value in ROLES.items()},
     )
     if context.get("repo") is not None:
         repo = context["repo"]

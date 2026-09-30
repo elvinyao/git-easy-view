@@ -1,0 +1,27 @@
+{% macro commit(view) %}
+  {% set branch = view.branch %}
+  <div class="overview-branch" data-summary-branch-id="{{ branch.id }}" data-state="{{ view.state }}" data-role="{{ view.role }}">
+    <div class="overview-branch-heading">
+      <a class="overview-branch-name" href="/repositories/{{ branch.repository_id }}/branches/{{ branch.id }}?lang={{ locale }}" title="{{ branch.name }}">{{ branch.name }}</a>
+      {% if view.is_default %}
+        <span class="overview-state is-default">{{ t('默认') }}</span>
+      {% else %}
+        {% set labels = {'identical': '相同', 'contained': '已包含', 'diverged': '有独有提交', 'unrelated': '无共同历史', 'missing': '未分析'} %}
+        <span class="overview-state {{ view.state }}" title="{{ t('相对 {branch} 的提交关系', branch=view.baseline.name) if view.baseline else t('默认主干不可用') }}">{{ t(labels.get(view.state, '未分析')) }}</span>
+      {% endif %}
+      {% if branch.config and branch.config.active_release %}<span class="overview-active" title="{{ t('活跃发布') }}" aria-label="{{ t('活跃发布') }}">●</span>{% endif %}
+    </div>
+    <p class="overview-subject {{ 'unavailable' if view.subject is none else '' }}" title="{{ view.subject if view.subject is not none else t(view.subject_error or '提交摘要尚不可用') }}">
+      {{ (view.subject or t('无提交标题')) if view.subject is not none else t(view.subject_error or '提交摘要尚不可用') }}
+    </p>
+    <div class="overview-commit-meta">
+      {% if branch.head_oid %}
+        <a class="overview-hash" href="/repositories/{{ branch.repository_id }}/branches?branch_id={{ branch.id }}&amp;commit={{ branch.head_oid }}&amp;lang={{ locale }}" title="{{ branch.head_oid }}">{{ branch.head_oid[:7] }}</a>
+      {% else %}<span class="muted">{{ t('无提交') }}</span>{% endif %}
+      {% if branch.commit_time %}<time datetime="{{ branch.commit_time.isoformat() }}" title="{{ branch.commit_time|date }}" aria-label="{{ branch.commit_time|date }}">{{ branch.commit_time.strftime('%m-%d %H:%M') }}</time>{% else %}<span class="muted">{{ t('提交时间未知') }}</span>{% endif %}
+      {% if not view.is_default and view.comparison and view.state != 'unrelated' %}
+        <span class="overview-delta" title="{{ t('领先 {ahead} · 落后 {behind}（相对 {branch}）', ahead=view.comparison.ahead, behind=view.comparison.behind, branch=view.baseline.name) }}" aria-label="{{ t('领先 {ahead} · 落后 {behind}（相对 {branch}）', ahead=view.comparison.ahead, behind=view.comparison.behind, branch=view.baseline.name) }}"><b>↑{{ view.comparison.ahead }}</b><span>↓{{ view.comparison.behind }}</span></span>
+      {% elif not view.is_default and view.state == 'identical' %}<span class="overview-delta">↑0 ↓0</span>{% endif %}
+    </div>
+  </div>
+{% endmacro %}

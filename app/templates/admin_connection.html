@@ -1,18 +1,18 @@
 {% extends 'base.html' %}
 {% block content %}
   <p class="eyebrow">
-    <a href="/admin">管理工作台</a> / 平台连接
+    <a href="/admin">{{ t('管理工作台') }}</a> {{ t('/ 平台连接') }}
   </p>
-  <h1>{{ connection.name if connection else '添加平台连接' }}</h1>
-  {% if connection and connection.last_error %}<div class="notice danger">{{ connection.last_error }}</div>{% endif %}
+  <h1>{{ connection.name if connection else t('添加平台连接') }}</h1>
+  {% if connection and connection.last_error %}<div class="notice danger">{{ t(connection.last_error) }}</div>{% endif %}
   {% if check_result %}
     <section class="panel detail-section">
-      <h2>连接检查结果</h2>
+      <h2>{{ t('连接检查结果') }}</h2>
       <p>
-        身份：{{ check_result.login or check_result.username or check_result.identity or check_result.external_user_id or '未知' }}
+        {{ t('身份：') }}{{ check_result.login or check_result.username or check_result.identity or check_result.external_user_id or t('未知') }}
       </p>
-      <p>平台版本：{{ check_result.version or '未知' }}</p>
-      <p>可选能力：{{ check_result.capabilities if check_result.capabilities else '未知（平台未提供）' }}</p>
+      <p>{{ t('平台版本：') }}{{ check_result.version or t('未知') }}</p>
+      <p>{{ t('可选能力：') }}{{ check_result.capabilities if check_result.capabilities else t('未知（平台未提供）') }}</p>
     </section>
   {% endif %}
   <div class="admin-grid">
@@ -22,70 +22,70 @@
             class="stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>
-          连接名称
+          {{ t('连接名称') }}
           <input name="name"
                  value="{{ connection.name if connection else '' }}"
                  maxlength="255"
                  required>
         </label>
         <label>
-          平台
+          {{ t('平台') }}
           <select name="kind">
             <option value="github"
                     {% if connection and connection.kind=='github' %}selected{% endif %}>
               GitHub / GitHub Enterprise
             </option>
             <option value="gitlab"
-                    {% if connection and connection.kind=='gitlab' %}selected{% endif %}>GitLab / 自建 GitLab</option>
+                    {% if connection and connection.kind=='gitlab' %}selected{% endif %}>{{ t('GitLab / 自建 GitLab') }}</option>
           </select>
         </label>
         <label>
-          HTTPS 实例地址
+          {{ t('HTTPS 实例地址') }}
           <input name="base_url"
                  type="url"
                  value="{{ connection.base_url if connection else '' }}"
-                 placeholder="https://github.com 或 https://gitlab.example.com"
+                 placeholder="{{ t('https://github.com 或 https://gitlab.example.com') }}"
                  required
                  maxlength="2048">
         </label>
         <label>
-          访问令牌（留空{{ '保留已保存令牌' if connection else '使用匿名访问' }}）
+          {{ t('访问令牌（留空保留已保存令牌）') if connection else t('访问令牌（留空使用匿名访问）') }}
           <input name="token"
                  type="password"
                  autocomplete="new-password"
                  maxlength="8192">
         </label>
         <label>
-          公司 CA 文件路径（可选）
+          {{ t('公司 CA 文件路径（可选）') }}
           <input name="ca_bundle_path"
                  value="{{ connection.ca_bundle_path or '' if connection else '' }}"
                  placeholder="/certs/company-ca.pem"
                  maxlength="2048">
         </label>
-        <p class="help">CA 文件须挂载到 Web 与 Worker 容器。TLS 验证始终启用；凭据变更后须检查连接才能恢复同步。</p>
-        <button class="primary">保存连接</button>
+        <p class="help">{{ t('CA 文件须挂载到 Web 与 Worker 容器。TLS 验证始终启用；凭据变更后须检查连接才能恢复同步。') }}</p>
+        <button class="primary">{{ t('保存连接') }}</button>
       </form>
     </section>
     <section class="panel">
-      <h2>检查并导入</h2>
+      <h2>{{ t('检查并导入') }}</h2>
       {% if connection %}
-        <p>最近检查：{{ connection.last_checked_at|date }}</p>
-        <span class="badge">{{ '待检查 / 凭据已暂停' if connection.auth_disabled else '连接已启用' }}</span>
+        <p>{{ t('最近检查：') }}{{ connection.last_checked_at|date }}</p>
+        <span class="badge">{{ t('待检查 / 凭据已暂停') if connection.auth_disabled else t('连接已启用') }}</span>
         <form method="post"
               action="/admin/connections/{{ connection.id }}/check"
               class="stack">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button>检查身份与平台能力</button>
+          <button>{{ t('检查身份与平台能力') }}</button>
         </form>
-        <p class="help">检查成功后会重新安排关联仓库同步。</p>
+        <p class="help">{{ t('检查成功后会重新安排关联仓库同步。') }}</p>
         {% if not connection.auth_disabled %}
           <p>
             <a class="button primary"
-               href="/admin/connections/{{ connection.id }}/repositories">选择仓库并导入 →</a>
+               href="/admin/connections/{{ connection.id }}/repositories">{{ t('选择仓库并导入 →') }}</a>
           </p>
         {% endif %}
       {% else %}
-        <p class="muted">先保存连接，再检查身份、选择仓库。</p>
+        <p class="muted">{{ t('先保存连接，再检查身份、选择仓库。') }}</p>
       {% endif %}
     </section>
   </div>

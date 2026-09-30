@@ -1,20 +1,20 @@
 {% extends 'base.html' %}
 {% block content %}
   <p class="eyebrow">
-    <a href="/admin">管理工作台</a> / 仓库配置
+    <a href="/admin">{{ t('管理工作台') }}</a> {{ t('/ 仓库配置') }}
   </p>
   <header class="page-heading">
     <h1>{{ repo.full_name }}</h1>
-    <a class="button" href="/repositories/{{ repo.id }}">查看仓库</a>
+    <a class="button" href="/repositories/{{ repo.id }}">{{ t('查看仓库') }}</a>
   </header>
   {% include 'repo_status.html' %}
   <div class="admin-grid">
     <section class="panel">
-      <h2>同步与角色规则</h2>
+      <h2>{{ t('同步与角色规则') }}</h2>
       <form method="post" class="stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>
-          同步间隔（秒）
+          {{ t('同步间隔（秒）') }}
           <input type="number"
                  name="sync_interval_seconds"
                  min="30"
@@ -23,35 +23,35 @@
                  required>
         </label>
         <label>
-          发布分支前缀（逗号分隔）
+          {{ t('发布分支前缀（逗号分隔）') }}
           <input name="release_prefixes"
                  value="{{ repo.role_prefixes.get('release', []) |join(',') }}"
                  maxlength="2000">
         </label>
         <label>
-          功能分支前缀（逗号分隔）
+          {{ t('功能分支前缀（逗号分隔）') }}
           <input name="feature_prefixes"
                  value="{{ repo.role_prefixes.get('feature', []) |join(',') }}"
                  maxlength="2000">
         </label>
-        <p class="help">前缀仅决定角色，不决定创建来源。保存后重新分析来源候选。</p>
-        <button class="primary">保存并安排分析</button>
+        <p class="help">{{ t('前缀仅决定角色，不决定创建来源。保存后重新分析来源候选。') }}</p>
+        <button class="primary">{{ t('保存并安排分析') }}</button>
       </form>
     </section>
     <section class="panel">
-      <h2>手动同步与历史补充</h2>
+      <h2>{{ t('手动同步与历史补充') }}</h2>
       <form method="post"
             action="/admin/repositories/{{ repo.id }}/sync"
             class="stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>
-          历史起始日期（可选）
+          {{ t('历史起始日期（可选）') }}
           <input type="date" name="history_since">
         </label>
-        <p class="help">获取全部开放记录，以及起始日期以来更新的关闭／合并记录。留空使用当前覆盖窗口。</p>
-        <button>立即同步 / 补充历史</button>
+        <p class="help">{{ t('获取全部开放记录，以及起始日期以来更新的关闭／合并记录。留空使用当前覆盖窗口。') }}</p>
+        <button>{{ t('立即同步 / 补充历史') }}</button>
       </form>
-      <h2>所属项目</h2>
+      <h2>{{ t('所属项目') }}</h2>
       <ul class="admin-list">
         {% for link in repo.projects %}
           <li>
@@ -59,7 +59,7 @@
             <form method="post" action="/admin/repositories/{{ repo.id }}/projects">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="project_id" value="{{ link.project_id }}">
-              <button name="action" value="detach">移除关联</button>
+              <button name="action" value="detach">{{ t('移除关联') }}</button>
             </form>
           </li>
         {% endfor %}
@@ -69,42 +69,42 @@
             class="inline-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>
-          关联到项目
+          {{ t('关联到项目') }}
           <select name="project_id">
             {% for project in projects %}<option value="{{ project.id }}">{{ project.name }}</option>{% endfor %}
           </select>
         </label>
-        <button name="action" value="attach">添加关联</button>
+        <button name="action" value="attach">{{ t('添加关联') }}</button>
       </form>
     </section>
   </div>
   <section class="panel detail-section">
-    <h2>最近 30 个后台任务</h2>
+    <h2>{{ t('最近 30 个后台任务') }}</h2>
     <div class="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>任务</th>
-            <th>类型</th>
-            <th>状态</th>
-            <th>请求时间</th>
-            <th>说明</th>
+            <th>{{ t('任务') }}</th>
+            <th>{{ t('类型') }}</th>
+            <th>{{ t('状态') }}</th>
+            <th>{{ t('请求时间') }}</th>
+            <th>{{ t('说明') }}</th>
           </tr>
         </thead>
         <tbody>
           {% for job in jobs %}
             <tr>
               <td>#{{ job.id }}</td>
-              <td>{{ '同步' if job.kind=='sync' else '本地比较' }}</td>
+              <td>{{ t('同步') if job.kind=='sync' else t('本地比较') }}</td>
               <td>
-                {{ {'pending':'待排队','queued':'已排队','running':'执行中','retry':'等待重试','succeeded':'成功','failed':'失败','superseded':'已被新请求取代','auth_failed':'凭据失效'}.get(job.status, job.status) }}
+                {{ {'pending':t('待排队'),'queued':t('已排队'),'running':t('执行中'),'retry':t('等待重试'),'succeeded':t('成功'),'failed':t('失败'),'superseded':t('已被新请求取代'),'auth_failed':t('凭据失效')}.get(job.status, job.status) }}
               </td>
               <td>{{ job.requested_at|date }}</td>
               <td>
                 {% if job.enqueue_error %}
-                  队列不可用，请求已持久保存，调度器会自动补排。
+                  {{ t('队列不可用，请求已持久保存，调度器会自动补排。') }}
                 {% elif job.error %}
-                  执行失败，请检查连接或重试。
+                  {{ t('执行失败，请检查连接或重试。') }}
                 {% else %}
                   —
                 {% endif %}
@@ -112,7 +112,7 @@
             </tr>
           {% else %}
             <tr>
-              <td colspan="5">暂无任务</td>
+              <td colspan="5">{{ t('暂无任务') }}</td>
             </tr>
           {% endfor %}
         </tbody>

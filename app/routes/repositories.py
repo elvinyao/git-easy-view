@@ -3,9 +3,10 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.auth import current_user, require_repository_access
+from app.auth import optional_user, require_admin, require_repository_access
 from app.db import get_session
 from app.git_service import GitError
+from app.git_workspace import workspace_context
 from app.jobs import enqueue_comparison
 from app.models import AuditEvent, PullRequest, SyncJob, User
 from app.sync import RepositoryBusy, read_unique_commits
@@ -26,7 +27,7 @@ router = APIRouter()
 def repository_page(
     repository_id: int,
     request: Request,
-    user: User = Depends(current_user),
+    user: User | None = Depends(optional_user),
     session: Session = Depends(get_session),
 ):
     repo = require_repository_access(session, user, repository_id)
@@ -34,16 +35,25 @@ def repository_page(
 
 
 @router.get("/repositories/{repository_id}/branches")
+@router.get("/repositories/{repository_id}/log")
 def branches(
     repository_id: int,
     request: Request,
-    user: User = Depends(current_user),
+    user: User | None = Depends(optional_user),
     session: Session = Depends(get_session),
 ):
     repo = require_repository_access(session, user, repository_id)
     query = query_state(request)
     views = filtered(branch_views(session, [repo])[repo.id], query)
     page = query["page"]
+    if request.url.path.endswith("/log"):
+        return render(request, "git_log.html", session, user, repo=repo, **workspace_context(request, repo, views))
+    if request.query_params.get("fragment") != "1":
+        return render(
+            request, "git_workspace.html", session, user, repo=repo,
+            views=views[(page - 1) * 50 : page * 50], total=len(views),
+            **workspace_context(request, repo, views),
+        )
     return render(
         request,
         "branches.html",
@@ -61,7 +71,7 @@ def branch_detail(
     repository_id: int,
     branch_id: int,
     request: Request,
-    user: User = Depends(current_user),
+    user: User | None = Depends(optional_user),
     session: Session = Depends(get_session),
 ):
     repo = require_repository_access(session, user, repository_id)
@@ -132,7 +142,7 @@ def compare(
     repository_id: int,
     branch_id: int,
     request: Request,
-    user: User = Depends(current_user),
+    user: User = Depends(require_admin),
     form=Depends(form_data),
     session: Session = Depends(get_session),
 ):
@@ -172,7 +182,7 @@ def compare(
 @router.get("/repositories/{repository_id}/status")
 def status(
     repository_id: int,
-    user: User = Depends(current_user),
+    user: User | None = Depends(optional_user),
     session: Session = Depends(get_session),
 ):
     repo = require_repository_access(session, user, repository_id)
@@ -188,7 +198,7 @@ def status(
 def job_status(
     repository_id: int,
     job_id: int,
-    user: User = Depends(current_user),
+    user: User | None = Depends(optional_user),
     session: Session = Depends(get_session),
 ):
     require_repository_access(session, user, repository_id)
@@ -208,7 +218,7 @@ def pull_request(
     repository_id: int,
     pr_id: int,
     request: Request,
-    user: User = Depends(current_user),
+    user: User | None = Depends(optional_user),
     session: Session = Depends(get_session),
 ):
     repo = require_repository_access(session, user, repository_id)
@@ -226,7 +236,7 @@ def pull_request(
 def pull_requests(
     repository_id: int,
     request: Request,
-    user: User = Depends(current_user),
+    user: User | None = Depends(optional_user),
     session: Session = Depends(get_session),
 ):
     repo = require_repository_access(session, user, repository_id)

@@ -6,12 +6,12 @@
     <table class="branch-table">
       <thead>
         <tr>
-          <th>分支 / 角色</th>
-          <th>来源</th>
-          <th>计划合入目标</th>
-          <th>比较对象 / 当前提交关系</th>
+          <th>{{ t('分支 / 角色') }}</th>
+          <th>{{ t('来源') }}</th>
+          <th>{{ t('计划合入目标') }}</th>
+          <th>{{ t('比较对象 / 当前提交关系') }}</th>
           <th>PR / MR</th>
-          <th>最近提交</th>
+          <th>{{ t('最近提交') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -19,19 +19,19 @@
           <tr data-branch-id="{{ view.branch.id }}">
             <td class="branch-name">
               <a href="/repositories/{{ repo.id }}/branches/{{ view.branch.id }}">{{ view.branch.name }}</a><small><span class="badge">{{ roles.get(view.role, view.role) }}</span>
-              {% if view.config and view.config.active_release %}<span class="badge teal">活跃发布</span>{% endif %}
+              {% if view.config and view.config.active_release %}<span class="badge teal">{{ t('活跃发布') }}</span>{% endif %}
             </small>
           </td>
           <td>
             {% if view.sources %}
               {% for source in view.sources[:2] %}
                 <div class="wrap-ref">
-                  {{ source.name }} <span class="badge">{{ '人工指定' if source.kind == 'manual' else '推测' }}</span>
+                  {{ source.name }} <span class="badge">{{ t('人工指定') if source.kind == 'manual' else t('推测') }}</span>
                 </div>
               {% endfor %}
-              {% if view.sources|length > 2 %}<small>另 {{ view.sources|length-2 }} 个候选 · 详情查看</small>{% endif %}
+              {% if view.sources|length > 2 %}<small>{{ t('另 {count} 个候选 · 详情查看', count=view.sources|length-2) }}</small>{% endif %}
             {% else %}
-              <span class="muted">无法判断</span>
+              <span class="muted">{{ t('无法判断') }}</span>
             {% endif %}
           </td>
           <td>
@@ -41,27 +41,27 @@
                 {% with target=plan.target %}
                   {% include "target_identity.html" %}
                 {% endwith %}
-                {% if plan.target.repository_id != repo.id %}<small>跨仓库目标</small>{% endif %}
-                {% if not plan.target.oid and plan.kind == 'manual' %}<small>目标当前不存在</small>{% endif %}
-                <small>{{ '人工指定' if plan.kind == 'manual' else '开放 PR/MR' }}</small>
+                {% if plan.target.repository_id != repo.id %}<small>{{ t('跨仓库目标') }}</small>{% endif %}
+                {% if not plan.target.oid and plan.kind == 'manual' %}<small>{{ t('目标当前不存在') }}</small>{% endif %}
+                <small>{{ t('人工指定') if plan.kind == 'manual' else t('开放 PR/MR') }}</small>
               </div>
             {% else %}
-              <span class="muted">无计划目标</span>
+              <span class="muted">{{ t('无计划目标') }}</span>
             {% endfor %}
           </td>
           <td>
-            <span class="wrap-ref">{{ view.primary.name if view.primary else '比较对象未知' }}</span><small>{{ view.primary_reason }}</small>
+            <span class="wrap-ref">{{ view.primary.name if view.primary else t('比较对象未知') }}</span><small>{{ t(view.primary_reason) }}</small>
             {% with target=view.primary %}
               {% include "target_identity.html" %}
             {% endwith %}
-            <span class="badge state-{{ view.state }}">{{ states.get(view.state, '未分析') }}</span><small>领先 <b>{{ view.comparison.ahead if view.comparison and view.comparison.ahead is not none else '—' }}</b> · 落后 <b>{{ view.comparison.behind if view.comparison and view.comparison.behind is not none else '—' }}</b></small>
+            <span class="badge state-{{ view.state }}">{{ states.get(view.state, t('未分析')) }}</span><small>{{ t('领先') }} <b>{{ view.comparison.ahead if view.comparison and view.comparison.ahead is not none else '—' }}</b> {{ t('· 落后') }} <b>{{ view.comparison.behind if view.comparison and view.comparison.behind is not none else '—' }}</b></small>
           </td>
           <td>
             {% for pr in view.prs[:3] %}
               <a class="small-link"
-                 href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}">{{ {'open':'开放','closed':'已关闭','merged':'历史已合并'}.get(pr.state, '未确认') }}</a>
+                 href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}">{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state, t('未确认')) }}</a>
             {% else %}
-              <span class="muted">未确认</span>
+              <span class="muted">{{ t('未确认') }}</span>
             {% endfor %}
           </td>
           <td>
@@ -72,11 +72,11 @@
         <tr>
           <td colspan="6" class="empty">
             {% if not repo.git_synced_at %}
-              正在导入，尚无分支快照。
+              {{ t('正在导入，尚无分支快照。') }}
             {% elif query.q or query.role or query.relation %}
-              没有符合筛选条件的分支。
+              {{ t('没有符合筛选条件的分支。') }}
             {% else %}
-              空仓库：当前没有分支。
+              {{ t('空仓库：当前没有分支。') }}
             {% endif %}
           </td>
         </tr>
@@ -84,17 +84,17 @@
     </tbody>
   </table>
 </div>
-<nav class="pagination" aria-label="分支分页">
+<nav class="pagination" aria-label="{{ t('分支分页') }}">
   {% if query.page > 1 %}
     <a class="button branch-page"
        data-page="{{ query.page-1 }}"
-       href="{{ query_url(page=query.page-1) }}">← 上一页</a>
+       href="{{ query_url(page=query.page-1) }}">{{ t('← 上一页') }}</a>
   {% endif %}
-  <span>第 {{ query.page }} 页 · {{ total }} 个分支</span>
+  <span>{{ t('第 {page} 页 · {total} 个分支', page=query.page, total=total) }}</span>
   {% if query.page*50 < total %}
     <a class="button branch-page"
        data-page="{{ query.page+1 }}"
-       href="{{ query_url(page=query.page+1) }}">下一页 →</a>
+       href="{{ query_url(page=query.page+1) }}">{{ t('下一页 →') }}</a>
   {% endif %}
 </nav>
 </div>

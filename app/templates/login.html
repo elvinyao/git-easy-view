@@ -1,34 +1,35 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{ locale }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>登录 · Git Easy View</title>
+    <title>{{ t('登录 · Git Easy View') }}</title>
     <link rel="stylesheet" href="/static/app.css">
   </head>
   <body class="login-body">
     <main class="login-card">
       <span class="brand-mark">g.</span>
       <p class="eyebrow">GIT EASY VIEW</p>
-      <h1>看清每条分支的进展</h1>
-      <p class="muted">登录团队工作台，查看项目、提交关系与合并证据。</p>
-      {% if error %}<p class="notice danger" role="alert">用户名或密码不正确，请重试。</p>{% endif %}
+      <h1>{{ t('看清每条分支的进展') }}</h1>
+      <p class="muted">{{ t('项目和分支可匿名查看。管理连接与配置时，请使用管理员账号登录。') }}</p>
+      {% if error %}<p class="notice danger" role="alert">{{ t('用户名或密码不正确，请重试。') }}</p>{% endif %}
       <form method="post" action="/login" class="stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>
-          用户名
+          {{ t('用户名') }}
           <input name="username" autocomplete="username" required>
         </label>
         <label>
-          密码
+          {{ t('密码') }}
           <input name="password"
                  type="password"
                  autocomplete="current-password"
                  required>
         </label>
-        <button type="submit" class="primary">登录工作台 →</button>
+        <button type="submit" class="primary">{{ t('登录工作台 →') }}</button>
       </form>
-      <small class="muted">账号与项目权限由团队管理员分配。</small>
+      <a class="button login-browse" href="/">{{ t('匿名浏览项目 →') }}</a>
+      {% include 'language_picker.html' %}
     </main>
   </body>
 </html>

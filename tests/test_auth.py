@@ -2,16 +2,13 @@ import re
 import asyncio
 from datetime import timedelta
 
-from fastapi import Depends
 import pytest
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import current_user, require_project_access
 from app.cli import main as cli_main
 from app.config import Settings
-from app.db import get_session
 from app.models import Project, ProjectMember, User
 
 
@@ -30,8 +27,11 @@ def login(client):
     )
 
 
-def test_anonymous_dashboard_redirects(client):
+def test_anonymous_dashboard_is_public_and_admin_requires_login(client):
     response = client.get("/", follow_redirects=False)
+    assert response.status_code == 200
+    assert "匿名访问" in response.text
+    response = client.get("/admin", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
 
@@ -55,7 +55,8 @@ def test_wrong_password_does_not_log_in(client, user):
         follow_redirects=False,
     )
     assert response.status_code == 401
-    assert client.get("/", follow_redirects=False).status_code == 303
+    assert "匿名访问" in client.get("/").text
+    assert client.get("/admin", follow_redirects=False).status_code == 303
 
 
 def test_logout_without_csrf_is_rejected(client, user):
@@ -69,7 +70,8 @@ def test_logout_with_csrf_clears_session(client, user):
     csrf = csrf_from(client.get("/"))
     response = client.post("/logout", data={"csrf_token": csrf}, follow_redirects=False)
     assert response.status_code == 303
-    assert client.get("/", follow_redirects=False).status_code == 303
+    assert "匿名访问" in client.get("/").text
+    assert client.get("/admin", follow_redirects=False).status_code == 303
 
 
 def test_unicode_csrf_is_rejected_without_server_error(client, user):
@@ -77,7 +79,7 @@ def test_unicode_csrf_is_rejected_without_server_error(client, user):
     assert client.post("/logout", data={"csrf_token": "🌸"}).status_code == 403
 
 
-def test_revoked_project_membership_denies_next_request(app, client, user):
+def test_membership_is_not_required_for_public_projects(app, client, user):
     with Session(app.state.engine) as session:
         project = Project(name="Private", slug="private")
         session.add(project)
@@ -86,22 +88,35 @@ def test_revoked_project_membership_denies_next_request(app, client, user):
         session.commit()
         project_id = project.id
 
-    @app.get("/test-project/{project_id}")
-    def project_page(
-        project_id: int,
-        authenticated_user: User = Depends(current_user),
-        session: Session = Depends(get_session),
-    ):
-        require_project_access(session, authenticated_user, project_id)
-        return {"visible": True}
-
     assert login(client).status_code == 303
-    assert client.get(f"/test-project/{project_id}").status_code == 200
+    assert client.get(f"/projects/{project_id}").status_code == 200
     with Session(app.state.engine) as session:
         membership = session.query(ProjectMember).filter_by(project_id=project_id, user_id=user.id).one()
         session.delete(membership)
         session.commit()
-    assert client.get(f"/test-project/{project_id}").status_code == 404
+    assert client.get(f"/projects/{project_id}").status_code == 200
+    client.cookies.clear()
+    assert client.get(f"/projects/{project_id}").status_code == 200
+
+
+@pytest.mark.parametrize("cookie", ["invalid", "", "eyJ1c2VyX2lkIjoxLCJjc3JmIjoiY3NyZiJ9.fake.signature"])
+def test_bad_session_is_anonymous_for_reads_and_cannot_grant_admin(client, cookie):
+    client.cookies.set("gev_session", cookie)
+    assert "匿名访问" in client.get("/").text
+    assert client.get("/admin", follow_redirects=False).status_code == 303
+
+
+def test_disabled_admin_retains_only_anonymous_access(app, client, user):
+    with Session(app.state.engine) as session:
+        session.get(User, user.id).is_admin = True
+        session.commit()
+    login(client)
+    assert client.get("/admin").status_code == 200
+    with Session(app.state.engine) as session:
+        session.get(User, user.id).is_active = False
+        session.commit()
+    assert "匿名访问" in client.get("/").text
+    assert client.get("/admin", follow_redirects=False).status_code == 303
 
 
 def test_cli_creates_hashed_admin_without_default_account(tmp_path, monkeypatch):

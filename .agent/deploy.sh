@@ -1,0 +1,77 @@
+#!/bin/sh
+# Executed in the Docker CLI container by .agent/run.sh, never on the host.
+set -eu
+
+: "${GEV_PROJECT_ROOT:?Use bash .agent/run.sh deploy; this script runs inside Docker}"
+
+production=false
+env_file=
+build=true
+pull=false
+wait_timeout=180
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --production) production=true; shift ;;
+    --env-file) env_file=$2; shift 2 ;;
+    --port|--project-name) shift 2 ;; # The Python configuration phase validated these.
+    --no-build) build=false; shift ;;
+    --pull) pull=true; shift ;;
+    --wait-timeout) wait_timeout=$2; shift 2 ;;
+    -h|--help) exit 0 ;; # Help was already displayed by the configuration phase.
+    *) printf 'Unknown deployment option: %s\n' "$1" >&2; exit 2 ;;
+  esac
+done
+if [ -z "$env_file" ]; then
+  if [ "$production" = true ]; then env_file=runtime/production.env; else env_file=runtime/local.env; fi
+fi
+
+compose() {
+  docker compose --project-directory "$GEV_PROJECT_ROOT" \
+    -f "$GEV_PROJECT_ROOT/compose.yaml" --env-file "/workspace/$env_file" "$@"
+}
+
+phase="Docker availability"
+report_failure() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    printf '\nDeployment failed during: %s (exit %s).\n' "$phase" "$status" >&2
+    printf 'Configuration and persistent volumes were retained. Inspect with:\n' >&2
+    printf 'bash .agent/run.sh compose --env-file %s ps -a\n' "$env_file" >&2
+    printf 'bash .agent/run.sh compose --env-file %s logs --tail=100 web worker dispatcher\n' "$env_file" >&2
+    if [ "$phase" = "database migration" ]; then
+      printf 'Application services remain stopped. Fix the migration or restore a verified backup before restarting.\n' >&2
+    fi
+  fi
+}
+trap report_failure EXIT
+docker info --format '{{.ServerVersion}}'
+phase="Compose configuration validation"
+compose config --quiet
+if [ "$pull" = true ]; then
+  phase="infrastructure image download"
+  compose pull postgres redis
+fi
+if [ "$build" = true ]; then
+  phase="application image build"
+  if [ "$pull" = true ]; then compose build --pull web; else compose build web; fi
+fi
+phase="application settings validation"
+compose run --rm --no-deps -T tools python -c 'from app.config import Settings; Settings(); print("Application settings valid")'
+phase="database and Redis health check"
+compose up -d --no-build --wait --wait-timeout "$wait_timeout" postgres redis
+phase="application shutdown before migration"
+compose stop web worker dispatcher
+phase="database migration"
+compose run --rm --no-deps -T migrate
+phase="application startup and health check"
+compose up -d --no-deps --no-build --wait --wait-timeout "$wait_timeout" web worker dispatcher
+phase="deployment status"
+compose ps -a
+printf '\nDeployment complete. Web loopback address: '
+compose port web 8000
+if [ "$production" = true ]; then
+  printf 'Use your configured HTTPS reverse proxy for browser access.\n'
+else
+  printf 'Open that address with http:// in your browser.\n'
+fi
+printf 'No accounts or example data are created automatically. See docs/README.md.\n'

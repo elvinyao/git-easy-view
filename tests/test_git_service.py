@@ -164,6 +164,27 @@ def test_commits_preserve_unicode_line_separator_in_subject(history):
     assert GitService(path).commits(oid, base)[0].subject == subject
 
 
+def test_tip_subjects_are_batched_immutable_and_do_not_walk_ancestors(history, monkeypatch):
+    path, base = history
+    first = commit(path, "first")
+    subject = "fix UI\u2028layout <script>"
+    second = commit(path, subject)
+    service = GitService(path)
+    calls = []
+    original = service._git
+    def record(*args, **kwargs):
+        calls.append(args)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(service, "_git", record)
+    assert service.commit_subjects([base, second, second]) == {base: "base", second: subject}
+    assert len(calls) == 1 and "--no-walk=unsorted" in calls[0]
+    assert first not in service.commit_subjects([second])
+    assert service.commit_subjects([]) == {}
+    for invalid in (["main"], ["--all"], [second] * 501):
+        with pytest.raises(InvalidRef):
+            service.commit_subjects(invalid)
+
+
 def test_commits_does_not_execute_configured_signature_verifier(history):
     path, base = history
     tree = git(path, "rev-parse", "HEAD^{tree}")
@@ -189,6 +210,7 @@ def test_commits_does_not_execute_configured_signature_verifier(history):
     git(path, "config", "gpg.program", str(verifier))
 
     assert [item.oid for item in GitService(path).commits(signed_oid, base)] == [signed_oid]
+    assert GitService(path).commit_subjects([signed_oid]) == {signed_oid: "signed commit"}
     assert not marker.exists()
 
 

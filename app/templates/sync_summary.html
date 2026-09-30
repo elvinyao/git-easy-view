@@ -1,14 +1,14 @@
 <div class="sync-summary" data-sync-attention="{{ summary.attention }}">
   {% if summary.attention %}
-    <strong>{{ summary.attention }} 个仓库需关注</strong>
+    <strong>{{ t('{count} 个仓库需关注', count=summary.attention) }}</strong>
     <small>
-      {% if summary.aged %}数据过期 {{ summary.aged }} · {% endif %}
-      {% if summary.missing %}等待首次同步 {{ summary.missing }} · {% endif %}
-      {% if summary.pending %}待发布更新 {{ summary.pending }} · {% endif %}
-      {% if summary.disabled %}连接已暂停 {{ summary.disabled }} · {% endif %}
-      {% if summary.error %}同步异常 {{ summary.error }}{% endif %}
+      {% if summary.aged %}{{ t('数据过期 {count}', count=summary.aged) }} · {% endif %}
+      {% if summary.missing %}{{ t('等待首次同步 {count}', count=summary.missing) }} · {% endif %}
+      {% if summary.pending %}{{ t('待发布更新 {count}', count=summary.pending) }} · {% endif %}
+      {% if summary.disabled %}{{ t('连接已暂停 {count}', count=summary.disabled) }} · {% endif %}
+      {% if summary.error %}{{ t('同步异常 {count}', count=summary.error) }}{% endif %}
     </small>
   {% else %}
-    <small>同步正常</small>
+    <small>{{ t('同步正常') }}</small>
   {% endif %}
 </div>

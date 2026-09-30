@@ -1,17 +1,17 @@
 {% extends 'base.html' %}
 {% block content %}
   <p class="eyebrow">
-    <a href="/repositories/{{ repo.id }}/branches/{{ branch.id }}">{{ repo.full_name }}</a> / 分支配置
+    <a href="/repositories/{{ repo.id }}/branches/{{ branch.id }}">{{ repo.full_name }}</a> {{ t('/ 分支配置') }}
   </p>
   <h1>{{ branch.name }}</h1>
-  {% if repo.connection.auth_disabled %}<p class="notice">配置将保存，待恢复连接后分析。</p>{% endif %}
+  {% if repo.connection.auth_disabled %}<p class="notice">{{ t('配置将保存，待恢复连接后分析。') }}</p>{% endif %}
   <section class="panel detail-section">
     <form method="post" class="stack">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>
-        角色覆盖
+        {{ t('角色覆盖') }}
         <select name="role">
-          <option value="">按默认分支与前缀规则</option>
+          <option value="">{{ t('按默认分支与前缀规则') }}</option>
           {% for key,label in roles.items() %}
             <option value="{{ key }}"
                     {% if config and config.role==key %}selected{% endif %}>{{ label }}</option>
@@ -22,46 +22,46 @@
         <input type="checkbox"
                name="active_release"
                {% if config and config.active_release %}checked{% endif %}>
-        活跃 release（仅发布角色）
+        {{ t('活跃 release（仅发布角色）') }}
       </label>
       <label>
-        人工指定来源
+        {{ t('人工指定来源') }}
         <select name="manual_source_branch_id">
-          <option value="">无人工指定</option>
+          <option value="">{{ t('无人工指定') }}</option>
           {% for b in branches if b.id != branch.id %}
             <option value="{{ b.id }}"
                     {% if config and config.manual_source_branch_id==b.id %}selected{% endif %}>
-              {{ b.name }}{{ '（当前不存在）' if b.deleted else '' }}
+              {{ b.name }}{{ t('（当前不存在）') if b.deleted else '' }}
             </option>
           {% endfor %}
         </select>
       </label>
       <fieldset>
-        <legend>人工计划目标</legend>
+        <legend>{{ t('人工计划目标') }}</legend>
         {% for b in branches if b.id != branch.id %}
           <label>
             <input type="checkbox"
                    name="manual_targets"
                    value="{{ b.id }}"
                    {% if b.id in manual_ids %}checked{% endif %}>
-            {{ b.name }}{{ '（当前不存在）' if b.deleted else '' }}
+            {{ b.name }}{{ t('（当前不存在）') if b.deleted else '' }}
           </label>
         {% endfor %}
       </fieldset>
       <label>
-        主要比较对象
+        {{ t('主要比较对象') }}
         <select name="main_comparison_branch_id">
-          <option value="">自动：唯一计划目标，否则默认主干</option>
+          <option value="">{{ t('自动：唯一计划目标，否则默认主干') }}</option>
           {% for b in branches %}
             <option value="{{ b.id }}"
                     {% if config and config.main_comparison_branch_id==b.id %}selected{% endif %}>
-              {{ b.name }}{{ '（当前不存在）' if b.deleted else '' }}
+              {{ b.name }}{{ t('（当前不存在）') if b.deleted else '' }}
             </option>
           {% endfor %}
         </select>
       </label>
-      <p class="help">这些配置保存在本工具中，并在该仓库所属项目间共享。人工来源不代表 Git 能证明真实创建过程。</p>
-      <button class="primary">保存分支配置</button>
+      <p class="help">{{ t('这些配置保存在本工具中，并在该仓库所属项目间共享。人工来源不代表 Git 能证明真实创建过程。') }}</p>
+      <button class="primary">{{ t('保存分支配置') }}</button>
     </form>
   </section>
 {% endblock %}

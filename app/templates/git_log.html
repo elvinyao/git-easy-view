@@ -1,0 +1,82 @@
+{% from 'git_icons.html' import icon %}
+<section class="git-log" aria-label="{{ t('提交历史') }}">
+  <div class="git-pane-heading">
+    <h2>{{ icon('commit') }} {{ t('提交历史') }} <span class="git-count">{{ log_rows|length }}</span></h2>
+    <span class="git-log-scope" title="{{ selected_view.branch.name if selected_view else t('全部分支') }}">{{ icon('branch') }} {{ selected_view.branch.name if selected_view else t('全部分支') }}</span>
+  </div>
+  <div class="git-log-scroll">
+    {% if log_rows %}
+    <table class="git-log-table" aria-label="{{ t('提交历史') }}">
+      <thead><tr><th class="git-graph-column" style="width: {{ graph_width }}px">{{ t('图') }}</th><th>{{ t('提交信息') }}</th><th class="git-author-column">{{ t('作者') }}</th><th class="git-date-column">{{ t('日期') }}</th><th class="git-hash-column">Hash</th></tr></thead>
+      <tbody>
+        {% for row in log_rows %}
+        {% set commit = row.commit %}
+        <tr class="git-log-row {% if selected_commit and selected_commit.oid == commit.oid %}selected{% endif %}" data-commit="{{ commit.oid }}" aria-selected="{{ 'true' if selected_commit and selected_commit.oid == commit.oid else 'false' }}">
+          <td class="git-graph-cell">
+            <svg class="git-graph" viewBox="0 0 {{ graph_width }} 36" width="{{ graph_width }}" height="36" aria-hidden="true">
+              {% for path in row.paths %}<path d="{{ path.d }}" stroke="{{ path.color }}" fill="none" stroke-width="1.7"/>{% endfor %}
+              <circle cx="{{ row.x }}" cy="18" r="4" fill="{{ row.color }}" class="git-graph-node"/>
+            </svg>
+          </td>
+          <td class="git-message-cell">
+            <a class="git-commit-link" href="{{ workspace_url(commit=commit.oid, detail='commit') }}" title="{{ commit.subject }}">
+              {% for ref in row.references[:2] %}<span class="git-ref-label role-{{ ref.role }}">{{ ref.branch.name }}</span>{% endfor %}
+              {% if row.references|length > 2 %}<span class="git-ref-more" title="{% for ref in row.references[2:] %}{{ ref.branch.name }}{% if not loop.last %}, {% endif %}{% endfor %}">+{{ row.references|length - 2 }}</span>{% endif %}
+              <span class="git-commit-subject">{{ commit.subject }}</span>
+            </a>
+          </td>
+          <td class="git-author-column" title="{{ commit.author_name }}">{{ commit.author_name }}</td>
+          <td class="git-date-column"><time title="{{ commit.authored_at|date }}">{{ commit.authored_at.strftime('%m-%d %H:%M') }}</time></td>
+          <td class="git-hash-column"><code>{{ commit.oid[:8] }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="git-log-empty">{{ icon('commit') }}<h3>{{ t('提交历史暂不可用') if history_error else t('没有可显示的提交') }}</h3><p>{{ t(history_error) if history_error else t('选择其他分支或调整筛选条件。') }}</p></div>
+    {% endif %}
+  </div>
+  <div class="git-log-footer"><span>{{ t('最多显示最近 {count} 个提交', count=100) }}</span><span>{{ t('按提交拓扑排序') }}</span></div>
+</section>
+<aside class="git-inspector" aria-label="{{ t('详情') }}">
+  <div class="git-detail-tabs" role="tablist" aria-label="{{ t('详情') }}">
+    <button type="button" id="git-commit-tab" role="tab" data-git-tab="commit" aria-controls="git-commit-details" aria-selected="{{ 'true' if detail_tab == 'commit' else 'false' }}" tabindex="{{ '0' if detail_tab == 'commit' else '-1' }}">{{ t('提交') }}</button>
+    <button type="button" id="git-branch-tab" role="tab" data-git-tab="branch" aria-controls="git-branch-details" aria-selected="{{ 'true' if detail_tab == 'branch' else 'false' }}" tabindex="{{ '0' if detail_tab == 'branch' else '-1' }}">{{ t('分支关系') }}</button>
+  </div>
+  <div class="git-inspector-scroll">
+    <section id="git-commit-details" role="tabpanel" aria-labelledby="git-commit-tab" {% if detail_tab != 'commit' %}hidden{% endif %}>
+      {% if selected_commit %}
+        <div class="git-commit-details">
+          <span class="git-section-caption">{{ t('提交详情') }}</span><h2>{{ selected_commit.subject }}</h2>
+          <dl class="git-commit-metadata"><dt>{{ t('作者') }}</dt><dd>{{ selected_commit.author_name }}</dd><dt>{{ t('日期') }}</dt><dd>{{ selected_commit.authored_at|date }}</dd><dt>Hash</dt><dd class="git-oid"><code>{{ selected_commit.oid }}</code><button class="git-icon-button" type="button" data-copy="{{ selected_commit.oid }}" aria-label="{{ t('复制提交哈希') }}" title="{{ t('复制提交哈希') }}">{{ icon('copy') }}</button></dd></dl>
+          {% if selected_commit.parent_oids %}<div class="git-parent-commits"><span>{{ t('父提交') }}</span>{% for parent in selected_commit.parent_oids %}<code title="{{ parent }}">{{ parent[:8] }}</code>{% endfor %}</div>{% endif %}
+          {% set selected_refs = log_rows|selectattr('commit.oid', 'equalto', selected_commit.oid)|first %}
+          {% if selected_refs.references %}<div class="git-selected-refs">{% for ref in selected_refs.references %}<span class="git-ref-label role-{{ ref.role }}">{{ ref.branch.name }}</span>{% endfor %}</div>{% endif %}
+        </div>
+        <div class="git-files-heading"><h3>{{ icon('folder') }} {{ t('变更文件') }}</h3><span class="git-count">{{ file_total if not files_error else '—' }}</span></div>
+        {% if selected_commit.parent_oids|length > 1 %}<p class="git-file-note">{{ t('合并提交的文件变更与第一个父提交比较。') }}</p>{% endif %}
+        {% if files_error %}<p class="git-file-note">{{ t(files_error) }}</p>
+        {% else %}<ul class="git-file-list">{% for change in file_changes %}<li title="{{ change.path }}">{{ icon('file') }}<span>{{ change.path }}</span><span class="git-file-status status-{{ change.status }}" title="{{ {'A':t('新增'), 'M':t('修改'), 'D':t('删除'), 'T':t('类型变更')}.get(change.status, change.status) }}">{{ change.status }}</span></li>{% else %}<li class="git-files-empty">{{ t('此提交没有文件变更。') }}</li>{% endfor %}</ul>{% endif %}
+        {% if file_total > 200 %}<p class="git-file-note">{{ t('显示前 {count} 个变更文件', count=200) }}</p>{% endif %}
+      {% else %}<div class="git-inspector-empty">{{ icon('commit') }}<p>{{ t('选择一个提交，查看作者、哈希和变更文件。') }}</p></div>{% endif %}
+    </section>
+    <section id="git-branch-details" role="tabpanel" aria-labelledby="git-branch-tab" {% if detail_tab != 'branch' %}hidden{% endif %}>
+      {% if selected_view %}{% set view = selected_view %}
+        <div class="git-branch-details">
+          <span class="git-section-caption">{{ t('分支关系') }}</span><h2>{{ icon('branch') }} {{ view.branch.name }}</h2>
+          <span class="git-ref-label role-{{ view.role }}">{{ roles[view.role] }}</span>
+          <section class="git-evidence-section"><h3>{{ t('比较对象') }}</h3><strong class="git-target-name">{{ view.primary.name if view.primary else t('比较对象未知') }}</strong>{% with target=view.primary %}{% include 'target_identity.html' %}{% endwith %}<p class="git-evidence-note">{{ t(view.primary_reason) }}</p>
+            <span class="git-state-label state-{{ view.state }}">{{ states.get(view.state, t('未分析')) }}</span>
+            <div class="git-comparison-counts"><div><strong>{{ view.comparison.ahead if view.comparison and view.comparison.ahead is not none else '—' }}</strong><span>↑ {{ t('领先') }}</span></div><div><strong>{{ view.comparison.behind if view.comparison and view.comparison.behind is not none else '—' }}</strong><span>↓ {{ t('落后') }}</span></div></div>
+          </section>
+          <section class="git-evidence-section"><h3>{{ t('来源证据') }}</h3>{% for source in view.sources %}<p class="git-evidence-reference"><code>{{ source.name }}</code><span>{{ t('人工指定') if source.kind == 'manual' else t('推测') }}</span></p>{% else %}<p class="git-evidence-note">{{ t('无法判断，暂无来源证据。') }}</p>{% endfor %}</section>
+          <section class="git-evidence-section"><h3>{{ t('计划合入目标') }}</h3>{% for plan in view.plans %}<p class="git-evidence-reference"><code>{{ plan.target.name }}</code><span>{{ t('人工指定') if plan.kind == 'manual' else t('开放 PR/MR') }}</span></p>{% with target=plan.target %}{% include 'target_identity.html' %}{% endwith %}{% else %}<p class="git-evidence-note">{{ t('无计划目标') }}</p>{% endfor %}</section>
+          <section class="git-evidence-section"><h3>PR / MR</h3>{% for pr in view.prs %}<a class="git-pr-link" href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}"><span>{{ pr.title }}</span><span>{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state, t('未确认')) }} ↗</span></a>{% else %}<p class="git-evidence-note">{{ t('未确认') }}</p>{% endfor %}</section>
+          <p class="git-evidence-note">{{ t('Git 不记录永久父分支。共同祖先说明历史关系，不能证明创建来源。') }}</p>
+          <a class="git-detail-link" href="/repositories/{{ repo.id }}/branches/{{ view.branch.id }}">{{ t('打开完整分支证据') }} ↗</a>
+          {% if user and user.is_admin %}<a class="git-detail-link" href="/admin/branches/{{ view.branch.id }}">{{ t('编辑分支配置') }} ↗</a>{% endif %}
+        </div>
+      {% else %}<div class="git-inspector-empty">{{ icon('branch') }}<p>{{ t('选择一个分支，查看比较对象、来源和 PR / MR 证据。') }}</p></div>{% endif %}
+    </section>
+  </div>
+</aside>

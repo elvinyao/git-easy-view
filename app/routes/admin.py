@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_admin
 from app.db import get_session
+from app.i18n import Message
 from app.models import (
     AuditEvent,
     Branch,
@@ -27,6 +28,20 @@ from app.sync import branch_role
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
+FIELD_LABELS = {
+    "name": "名称",
+    "username": "用户名",
+    "slug": "项目标识",
+    "description": "描述",
+    "kind": "平台",
+    "base_url": "HTTPS 实例地址",
+    "token": "访问令牌",
+    "ca_bundle_path": "公司 CA 文件路径（可选）",
+    "sync_interval_seconds": "同步间隔（秒）",
+    "release_prefixes": "发布分支前缀（逗号分隔）",
+    "feature_prefixes": "功能分支前缀（逗号分隔）",
+    "role": "分支角色",
+}
 
 
 def audit(session, user, action, entity, details=None):
@@ -57,7 +72,14 @@ def commit(session):
 def text_field(form, name, maximum=255, required=True):
     value = str(form.get(name, "")).strip()
     if len(value) > maximum or (required and not value):
-        raise HTTPException(400, f"{name}：请填写有效内容（最多 {maximum} 字符）。")
+        raise HTTPException(
+            400,
+            Message(
+                "{name}：请填写有效内容（最多 {maximum} 字符）。",
+                name=Message(FIELD_LABELS.get(name, name)),
+                maximum=maximum,
+            ),
+        )
     return value
 
 

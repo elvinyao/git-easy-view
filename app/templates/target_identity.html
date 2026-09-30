@@ -1,3 +1,3 @@
 {% if target and target.repository_id != repo.id %}
-  <small class="target-identity">外部仓库 #{{ target.external_repository_id or '未知' }} / {{ target.name }}</small>
+  <small class="target-identity">{{ t('外部仓库 #') }}{{ target.external_repository_id or t('未知') }} / {{ target.name }}</small>
 {% endif %}

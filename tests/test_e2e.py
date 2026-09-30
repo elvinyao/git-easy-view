@@ -34,7 +34,7 @@ def fixture_url(tmp_path_factory):
     engine = make_engine(settings.database_url)
     Base.metadata.create_all(engine)
     engine.dispose()
-    create_demo(settings, admin_password="browser-admin-password", member_password="browser-member-password")
+    create_demo(settings, admin_password="browser-admin-password", member_password="browser-member-password", repositories=12)
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -58,7 +58,7 @@ def login(page, url, username, password):
     page.goto(url + "/login")
     page.locator('[name="username"]').fill(username)
     page.locator('[name="password"]').fill(password)
-    page.locator('button[type="submit"]').click()
+    page.locator('form[method="post"][action="/login"] button[type="submit"]').click()
     page.wait_for_url(url + "/")
 
 
@@ -69,36 +69,52 @@ def shot(page, name):
     page.screenshot(path=str(root / f"{name}-viewport.png"), full_page=False)
 
 
-def test_compose_demo_screenshots(browser):
+def test_compose_public_demo_screenshots(browser):
     access = json.loads(Path("runtime/demo-access.json").read_text())
-    page = browser.new_page(viewport={"width": 1440, "height": 1000})
-    login(page, "http://web:8000", **access["member"])
-    shot(page, "01-member-projects")
+    page = browser.new_page(viewport={"width": 1440, "height": 1000}, locale="zh-CN")
+    assert page.goto("http://web:8000/").status == 200
+    assert "匿名访问" in page.locator(".sidebar-footer").inner_text()
+    assert page.locator('.sidebar a[href="/admin"]').count() == 0
+    shot(page, "01-public-projects")
     page.goto("http://web:8000/projects/1")
+    page.locator('[data-overview-repository]').first.wait_for()
+    assert page.locator("[data-summary-branch-id]").count() == 165
+    shot(page, "project-branches-public-zh-CN")
+    page.locator('.overview-density a[aria-current="false"]').click()
+    assert page.locator("[data-summary-branch-id]").count() == 165
+    shot(page, "project-branches-public-compact-zh-CN")
     page.locator('.expand').first.click()
     page.locator('[data-branch-id]').first.wait_for()
     shot(page, "02-project-expanded")
     page.goto("http://web:8000/projects/1?q=login&expanded=1")
     page.locator('a').filter(has_text="feature/login").first.click()
     shot(page, "03-branch-evidence")
-    assert page.goto("http://web:8000/projects/2").status == 404
-    shot(page, "04-member-denied")
+    assert page.goto("http://web:8000/projects/2").status == 200
+    shot(page, "04-public-empty-project")
     page.close()
-    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    page = browser.new_page(viewport={"width": 1440, "height": 1000}, locale="zh-CN")
     login(page, "http://web:8000", **access["admin"])
     page.goto("http://web:8000/admin")
     shot(page, "05-admin")
+    page.goto("http://web:8000/repositories/1/branches?lang=ja")
+    page.locator(".git-workspace").wait_for()
+    assert page.locator(".git-log-row").count() == 3
+    target = page.locator(".git-log-row").nth(1).get_attribute("data-commit")
+    page.locator(".git-commit-link").nth(1).click()
+    from playwright.sync_api import expect
+    expect(page).to_have_url(re.compile(f"commit={target}"))
+    shot(page, "git-workspace-live-ja")
     page.close()
 
 
 def test_browser_permissions_filters_url_and_forms(browser, fixture_url):
     from playwright.sync_api import expect
-    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    page = browser.new_page(viewport={"width": 1440, "height": 1000}, locale="zh-CN")
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     login(page, fixture_url, "demo-member", "browser-member-password")
-    expect(page.locator("body")).not_to_contain_text("管理员专属项目")
-    assert page.goto(fixture_url + "/projects/2").status == 404
+    expect(page.locator("body")).to_contain_text("管理员专属项目")
+    assert page.goto(fixture_url + "/projects/2").status == 200
     assert page.goto(fixture_url + "/admin").status == 403
     page.goto(fixture_url + "/projects/1")
     page.locator('.expand').first.click()
@@ -110,7 +126,7 @@ def test_browser_permissions_filters_url_and_forms(browser, fixture_url):
     saved = page.url
     page.reload()
     expect(slot.locator('[data-branch-id]')).to_have_count(5)
-    page.locator('[name="q"]').fill("login")
+    page.locator('.filters [name="q"]').fill("login")
     page.get_by_role("button", name="应用筛选").click()
     expect(page.locator("#branches-1")).to_contain_text("feature/login")
     page.reload()
@@ -123,7 +139,7 @@ def test_browser_permissions_filters_url_and_forms(browser, fixture_url):
     expect(page.locator("body")).to_contain_text("示例 PR")
     shot(page, "06-fixture-branch")
     page.close()
-    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    page = browser.new_page(viewport={"width": 1440, "height": 1000}, locale="zh-CN")
     login(page, fixture_url, "demo-admin", "browser-admin-password")
     page.goto(fixture_url + "/admin")
     form = page.locator('form[action="/admin/projects"]')
@@ -151,9 +167,145 @@ def test_browser_permissions_filters_url_and_forms(browser, fixture_url):
     page.close()
 
 
+@pytest.mark.parametrize(
+    "locale,log,branch_tab,empty_files",
+    [
+        ("zh-CN", "提交历史", "分支关系", "此提交没有文件变更。"),
+        ("ja", "コミット履歴", "ブランチの関係", "このコミットにはファイルの変更がありません。"),
+        ("en", "Log", "Branch relations", "This commit has no file changes."),
+    ],
+)
+def test_git_workspace_selection_history_filters_and_mobile(browser, fixture_url, locale, log, branch_tab, empty_files):
+    from playwright.sync_api import expect
+
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    login(page, fixture_url, "demo-member", "browser-member-password")
+    page.goto(fixture_url + f"/repositories/1/branches?lang={locale}")
+    expect(page.locator(".git-workspace")).to_be_visible()
+    expect(page.locator(".git-log h2")).to_contain_text(log)
+    expect(page.locator(".git-branch-tree [data-branch-id]")).to_have_count(50)
+    expect(page.locator(".git-log-row")).to_have_count(3)
+    expect(page.locator(".git-graph").first).to_be_visible()
+    assert page.locator(".git-graph path").count() >= 3
+
+    main = page.locator('.git-branch-link').filter(has=page.locator('.git-branch-name').filter(has_text=re.compile(r'^main$')))
+    main_id = main.get_attribute("data-branch-id")
+    main.click()
+    expect(page.locator(".git-log-scope")).to_have_text("main")
+    expect(page.locator(".git-log-row")).to_have_count(2)
+    expect(main).to_have_attribute("aria-current", "true")
+    assert f"branch_id={main_id}" in page.url
+    assert f"branch_id={main_id}" in page.locator('.git-tree-pagination a').get_attribute('href')
+    assert f"branch_id={main_id}" in page.locator('.git-toolbar-filters .git-icon-button').get_attribute('href')
+    page.locator(".git-all-branches").click()
+    expect(page.locator(".git-log-row")).to_have_count(3)
+    page.go_back()
+    expect(page.locator(".git-log-scope")).to_have_text("main")
+    page.reload()
+    expect(page.locator(".git-log-row")).to_have_count(2)
+    page.locator(".git-all-branches").click()
+    expect(page.locator(".git-log-row")).to_have_count(3)
+    selected = page.locator(".git-log-row").last.get_attribute("data-commit")
+    page.locator(".git-commit-link").last.click()
+    expect(page).to_have_url(re.compile(f"commit={selected}"))
+    expect(page.locator(".git-log-row.selected")).to_have_attribute("data-commit", selected)
+    expect(page.locator(".git-file-list")).to_contain_text(empty_files)
+
+    page.locator('#git-filters [name="q"]').fill("login")
+    page.locator('#git-filters [name="q"]').press("Enter")
+    expect(page.locator(".git-branch-tree [data-branch-id]")).to_have_count(1)
+    page.locator(".git-branch-tree [data-branch-id]").click()
+    expect(page.locator(".git-log-scope")).to_have_text("feature/login")
+    expect(page.get_by_role("tab", name=branch_tab, exact=True)).to_have_attribute("aria-selected", "true")
+    page.get_by_role("tab", name=branch_tab, exact=True).press("ArrowLeft")
+    expect(page.locator("#git-commit-tab")).to_have_attribute("aria-selected", "true")
+    page.locator("#git-commit-tab").press("ArrowRight")
+    expect(page.locator("#git-branch-tab")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#git-branch-details")).to_contain_text("main")
+    expect(page.locator(".git-comparison-counts strong").first).to_have_text("1")
+    assert "q=login" in page.url
+    selected_branch = page.locator(".git-branch-tree [data-branch-id]").get_attribute("data-branch-id")
+    shot(page, f"git-workspace-{locale}-desktop")
+
+    # The saved language survives AJAX selections and reload without a picker.
+    expect(page.locator(".language-picker")).to_have_count(0)
+    page.reload()
+    expect(page.locator("html")).to_have_attribute("lang", locale)
+    assert "q=login" in page.url and f"branch_id={selected_branch}" in page.url
+    page.set_viewport_size({"width": 390, "height": 844})
+    expect(page.locator(".language-picker")).to_have_count(0)
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    shot(page, f"git-workspace-{locale}-mobile")
+    assert not errors
+    page.close()
+
+
+@pytest.mark.parametrize("locale,headline", [
+    ("zh-CN", "仓库分支总览"), ("ja", "リポジトリのブランチ一覧"), ("en", "Repository branch overview"),
+])
+def test_project_overview_twelve_repositories_and_mobile(browser, fixture_url, locale, headline):
+    from playwright.sync_api import expect
+
+    page = browser.new_page(viewport={"width": 1440, "height": 1200})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(fixture_url + f"/projects/1?lang={locale}")
+    expect(page.get_by_role("heading", name=headline, exact=True)).to_be_visible()
+    expect(page.locator("[data-overview-repository]")).to_have_count(12)
+    expect(page.locator(".overview-repo-nav a")).to_have_count(12)
+    expect(page.locator("[data-summary-branch-id]")).to_have_count(12 * 55)
+    expect(page.locator('form[method="post"]')).to_have_count(0)
+    expect(page.locator(".overview-main .overview-subject").first).to_have_text("Example main advance")
+    expect(page.locator(".overview-releases .overview-subject").first).to_have_text("Example root")
+    expect(page.locator(".overview-features .overview-branch-name").first).to_have_text("feature/login")
+    assert page.locator(".overview-releases .overview-branch").count() == 12
+    assert page.locator(".overview-features .overview-branch").count() == 12 * 53
+    shot(page, f"project-overview-{locale}-12-repositories")
+    assert page.locator(".overview-branch-scroll").first.evaluate("el => el.scrollHeight <= el.clientHeight + 1")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    for width in (720, 1024):
+        page.set_viewport_size({"width": width, "height": 1200})
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), width
+    page.set_viewport_size({"width": 1440, "height": 1200})
+
+    page.locator('.overview-density a[aria-current="false"]').click()
+    assert "density=compact" in page.url
+    expect(page.locator("[data-summary-branch-id]")).to_have_count(12 * 55)
+    assert page.locator(".overview-branch-scroll").first.bounding_box()["height"] <= 311
+    shot(page, f"project-branches-{locale}-12-repositories-compact")
+    last = page.locator('[data-overview-repository="1"] .overview-features .overview-branch').last
+    last.scroll_into_view_if_needed()
+    expect(last).to_be_visible()
+    assert page.locator(".overview-branch-scroll").first.evaluate("el => el.scrollTop > 0")
+    page.locator('.overview-repo-nav a[href="#repository-12"]').click()
+    assert page.url.endswith("#repository-12")
+    expect(page.locator('[data-overview-repository="12"]')).to_be_in_viewport(ratio=.95)
+    first_hash = page.locator(".overview-main .overview-hash").first
+    target = first_hash.get_attribute("title")
+    first_hash.click()
+    expect(page.locator(".git-log-scope")).to_have_text("main")
+    expect(page.locator(".git-log-row.selected")).to_have_attribute("data-commit", target)
+    page.go_back()
+    page.goto(fixture_url + f"/projects/1?lang={locale}&density=compact")
+    page.set_viewport_size({"width": 390, "height": 844})
+    expect(page.locator(".language-picker")).to_have_count(0)
+    expect(page.locator(".overview-main h3").first).to_be_visible()
+    expect(page.locator(".mobile-login")).to_be_visible()
+    shot(page, f"project-overview-{locale}-mobile")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), page.evaluate("Array.from(document.querySelectorAll('body *')).filter(el => el.getBoundingClientRect().right > innerWidth).map(el => [el.tagName, el.className, el.getBoundingClientRect().width]).slice(0, 20)")
+    page.locator(".overview-sync summary").first.click()
+    expect(page.locator(".overview-sync-details").first).to_be_visible()
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    shot(page, f"project-overview-{locale}-mobile")
+    assert not errors
+    page.close()
+
+
 def test_delayed_fragment_cannot_overwrite_new_selection(browser, fixture_url):
     from playwright.sync_api import expect
-    page = browser.new_page()
+    page = browser.new_page(locale="zh-CN")
     login(page, fixture_url, "demo-member", "browser-member-password")
     page.goto(fixture_url + "/projects/1?expanded=1")
     expect(page.locator("#branches-1 [data-branch-id]")).to_have_count(50)
@@ -172,4 +324,91 @@ def test_delayed_fragment_cannot_overwrite_new_selection(browser, fixture_url):
     expect(page.locator("#obsolete")).to_have_count(0)
     expect(page.locator("#branches-1")).not_to_have_attribute("aria-busy", "true")
     assert "bp_1=3" in page.url
+    page.close()
+
+
+def test_git_workspace_ignores_obsolete_selection_responses(browser, fixture_url):
+    from playwright.sync_api import expect
+
+    page = browser.new_page()
+    login(page, fixture_url, "demo-member", "browser-member-password")
+    page.goto(fixture_url + "/repositories/1/branches")
+    page.evaluate("""() => {
+      window.pending = [];
+      jQuery.ajax = function () {const d = jQuery.Deferred(); const r = d.promise(); r.abort = () => {}; pending.push(d); return r;};
+      const links = jQuery('.git-branch-link[data-branch-id]');
+      links.eq(0).click();
+      links.eq(1).click();
+      window.latestBranch = String(links.eq(1).data('branch-id'));
+      pending[1].resolve('<section id="latest-log">Latest selection</section>');
+      pending[0].resolve('<section id="obsolete-log">Obsolete selection</section>');
+    }""")
+    expect(page.locator("#latest-log")).to_be_visible()
+    expect(page.locator("#obsolete-log")).to_have_count(0)
+    expect(page.locator("#git-content")).not_to_have_attribute("aria-busy", "true")
+    assert f"branch_id={page.evaluate('window.latestBranch')}" in page.url
+    page.close()
+
+
+@pytest.mark.parametrize(
+    "locale,overview,retry,pending",
+    [
+        ("zh-CN", "项目概览", "重试", "请求已保存，等待队列恢复。"),
+        ("ja", "プロジェクト一覧", "再試行", "リクエストを保存しました。キューの復旧を待っています。"),
+        ("en", "Project overview", "Retry", "Request saved. Waiting for the queue to recover."),
+    ],
+)
+def test_login_language_persists_for_pages_fragments_notifications_and_mobile(browser, fixture_url, locale, overview, retry, pending):
+    from playwright.sync_api import expect
+
+    page = browser.new_page(locale="zh-CN", viewport={"width": 1440, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(fixture_url + "/login")
+    page.set_viewport_size({"width": 390, "height": 844})
+    picker = page.locator(".language-picker")
+    expect(picker).to_be_visible()
+    picker.locator("select").select_option(locale)
+    picker.locator("button").click()
+    expect(page.locator("html")).to_have_attribute("lang", locale)
+    expect(picker.locator("select")).to_have_value(locale)
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    shot(page, f"login-language-{locale}-mobile")
+    page.locator(".login-browse").click()
+    expect(page.locator("html")).to_have_attribute("lang", locale)
+    expect(page.locator(".language-picker")).to_have_count(0)
+    expect(page.locator(".mobile-login")).to_be_visible()
+    page.locator(".mobile-login").click()
+    expect(page.locator("html")).to_have_attribute("lang", locale)
+    expect(picker).to_be_visible()
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    login(page, fixture_url, "demo-member", "browser-member-password")
+    expect(page.get_by_role("heading", name=overview, exact=True)).to_be_visible()
+    expect(page.locator(".language-picker")).to_have_count(0)
+
+    page.goto(fixture_url + "/projects/1?q=login&expanded=1")
+    slot = page.locator("#branches-1")
+    expect(slot).to_contain_text("feature/login")
+    page.reload()
+    expect(page.locator("html")).to_have_attribute("lang", locale)
+    expect(page.locator(".language-picker")).to_have_count(0)
+    expect(slot).to_contain_text("feature/login")
+    assert "q=login" in page.url and "expanded=1" in page.url
+    page.locator('a').filter(has_text="feature/login").first.click()
+    branch_url = page.url
+    page.route("**/jobs/*", lambda route: route.fulfill(
+        json={"status": "queued", "queue_pending": True},
+    ))
+    page.goto(branch_url + ("&" if "?" in branch_url else "?") + "job_id=123")
+    expect(page.locator(".job-status")).to_have_text(pending)
+    shot(page, f"i18n-{locale}-branch")
+
+    page.route("**/repositories/1/branches?**", lambda route: route.fulfill(status=503, body="unavailable"))
+    page.goto(fixture_url + "/projects/1?expanded=1")
+    expect(slot.locator(".retry-branches")).to_have_text(retry)
+    page.set_viewport_size({"width": 390, "height": 844})
+    expect(page.locator(".language-picker")).to_have_count(0)
+    expect(page.locator("html")).to_have_attribute("lang", locale)
+    shot(page, f"i18n-{locale}-mobile")
+    assert not errors
     page.close()

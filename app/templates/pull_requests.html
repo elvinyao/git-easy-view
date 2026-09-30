@@ -1,47 +1,47 @@
 {% extends 'base.html' %}
 {% block content %}
   <p class="eyebrow">
-    <a href="/repositories/{{ repo.id }}">{{ repo.full_name }}</a> / 平台证据
+    <a href="/repositories/{{ repo.id }}">{{ repo.full_name }}</a> {{ t('/ 平台证据') }}
   </p>
-  <h1>PR / MR 记录</h1>
+  <h1>{{ t('PR / MR 记录') }}</h1>
   {% include 'repo_status.html' %}
   <section class="panel">
     <div class="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>记录 / 状态</th>
-            <th>平台来源仓库 ID / 分支</th>
-            <th>平台目标仓库 ID / 分支</th>
-            <th>最近更新</th>
+            <th>{{ t('记录 / 状态') }}</th>
+            <th>{{ t('平台来源仓库 ID / 分支') }}</th>
+            <th>{{ t('平台目标仓库 ID / 分支') }}</th>
+            <th>{{ t('最近更新') }}</th>
           </tr>
         </thead>
         <tbody>
           {% for pr in records %}
             <tr>
               <td>
-                <a href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}">{{ pr.title }}</a><small>{{ {'open':'开放','closed':'已关闭','merged':'历史已合并'}.get(pr.state,'未确认') }}</small>
+                <a href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}">{{ pr.title }}</a><small>{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state,t('未确认')) }}</small>
               </td>
               <td>
-                {{ pr.source_external_repo_id or '未知' }}<small>{{ pr.source_branch or '未知' }}</small>
+                {{ pr.source_external_repo_id or t('未知') }}<small>{{ pr.source_branch or t('未知') }}</small>
               </td>
               <td>
-                {{ pr.target_external_repo_id or '未知' }}<small>{{ pr.target_branch or '未知' }}</small>
+                {{ pr.target_external_repo_id or t('未知') }}<small>{{ pr.target_branch or t('未知') }}</small>
               </td>
               <td>{{ pr.updated_at|date }}</td>
             </tr>
           {% else %}
             <tr>
-              <td colspan="4" class="empty">当前覆盖范围内没有已获取的记录，是否曾合并未确认。</td>
+              <td colspan="4" class="empty">{{ t('当前覆盖范围内没有已获取的记录，是否曾合并未确认。') }}</td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <nav class="pagination">
-      {% if query.page>1 %}<a class="button" href="{{ query_url(page=query.page-1) }}">上一页</a>{% endif %}
-      <span>第 {{ query.page }} 页 · {{ total }} 条记录</span>
-      {% if query.page*50<total %}<a class="button" href="{{ query_url(page=query.page+1) }}">下一页</a>{% endif %}
+      {% if query.page>1 %}<a class="button" href="{{ query_url(page=query.page-1) }}">{{ t('上一页') }}</a>{% endif %}
+      <span>{{ t('第 {page} 页 · {total} 条记录', page=query.page, total=total) }}</span>
+      {% if query.page*50<total %}<a class="button" href="{{ query_url(page=query.page+1) }}">{{ t('下一页') }}</a>{% endif %}
     </nav>
   </section>
 {% endblock %}

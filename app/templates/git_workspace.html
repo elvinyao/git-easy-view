@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% from 'git_icons.html' import icon %}
+{% block title %}Git · {{ repo.full_name }}{% endblock %}
+{% block body_class %}git-workspace-page{% endblock %}
+{% block navigation %}{% endblock %}
+{% block content %}
+<div class="git-workspace" data-repository="{{ repo.id }}">
+  <header class="git-header">
+    <a class="git-home" href="/" aria-label="{{ t('项目概览') }}"><span class="brand-mark">g.</span></a>
+    <a class="git-back" href="/repositories/{{ repo.id }}" aria-label="{{ t('返回仓库概览') }}">{{ icon('back') }}</a>
+    <div class="git-repository-heading"><span class="git-header-caption">Git</span><h1>{{ repo.full_name }}</h1></div>
+    <span class="git-readonly">{{ t('只读快照') }}</span>
+    <div class="git-header-actions">
+      <span class="git-user">{{ user.username if user else t('匿名访问') }}</span>
+    </div>
+  </header>
+  <div class="git-toolbar">
+    <nav class="git-tool-tabs" aria-label="{{ t('仓库视图') }}">
+      <a class="active" href="/repositories/{{ repo.id }}/branches" aria-current="page">{{ icon('commit') }} {{ t('提交历史') }}</a>
+      <a href="/repositories/{{ repo.id }}/pull-requests">PR / MR <span class="git-tab-arrow">↗</span></a>
+    </nav>
+    <div class="git-toolbar-filters">
+      <label>{{ t('分支角色') }}<select name="role" form="git-filters">
+        <option value="">{{ t('全部角色') }}</option>
+        {% for key, label in roles.items() %}<option value="{{ key }}" {% if query.role == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></label>
+      <label>{{ t('当前提交关系') }}<select name="relation" form="git-filters">
+        <option value="">{{ t('全部关系') }}</option>
+        {% for key, label in states.items() %}<option value="{{ key }}" {% if query.relation == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></label>
+      <a class="git-icon-button" href="{{ workspace_url() }}" aria-label="{{ t('刷新缓存视图 ↻') }}" title="{{ t('刷新缓存视图 ↻') }}">{{ icon('refresh') }}</a>
+    </div>
+  </div>
+  <details class="git-sync-details">
+    <summary>
+      <span class="git-status-dot {% if sync_status.attention %}warning{% endif %}"></span>
+      <span>{{ t('正在显示缓存快照') if sync_status.attention else t('正常') }}</span>
+      <span class="git-sync-summary">Git: {{ t(sync_status.git_state) }} · API: {{ t(sync_status.api_state) }}{% if sync_status.disabled %} · {{ t('连接已暂停') }}{% endif %}</span>
+      <span class="git-sync-time">{{ repo.git_synced_at|date }}</span>
+      {{ icon('chevron') }}
+    </summary>
+    <div class="git-sync-body">{% include 'repo_status.html' %}</div>
+  </details>
+  <div class="git-panes">
+    <aside class="git-branches" aria-label="{{ t('分支') }}">
+      <div class="git-pane-heading"><h2>{{ icon('branch') }} {{ t('分支') }} <span class="git-count">{{ total }}</span></h2>
+        <button class="git-icon-button git-collapse-groups" type="button" title="{{ t('折叠分支分组') }}" aria-label="{{ t('折叠分支分组') }}">{{ icon('collapse') }}</button>
+      </div>
+      <form method="get" id="git-filters" class="git-branch-search">
+        <input type="hidden" name="lang" value="{{ locale }}">
+        {{ icon('search') }}
+        <input type="search" name="q" value="{{ query.q }}" aria-label="{{ t('搜索分支') }}" placeholder="{{ t('搜索分支') }}" autocomplete="off">
+        <button type="submit" class="git-icon-button" aria-label="{{ t('应用筛选') }}" title="{{ t('应用筛选') }}">{{ icon('arrow') }}</button>
+      </form>
+      <nav class="git-branch-tree" aria-label="{{ t('分支列表') }}">
+        <a class="git-branch-link git-all-branches {% if not selected_branch_id %}selected{% endif %}" href="{{ workspace_url(branch_id=None, commit=None, detail='commit') }}" aria-current="{{ 'true' if not selected_branch_id else 'false' }}">{{ icon('branch') }}<span>{{ t('全部分支') }}</span><span class="git-count">{{ total }}</span></a>
+        {% for role in roles %}
+          {% set group = views|selectattr('role', 'equalto', role)|list %}
+          {% if group %}
+          <details class="git-branch-group" open>
+            <summary>{{ icon('chevron') }}{{ icon('folder') }}<span>{{ roles[role] }}</span><span class="git-count">{{ group|length }}</span></summary>
+            {% for view in group %}
+              <a class="git-branch-link {% if view.branch.id == selected_branch_id %}selected{% endif %}" data-branch-id="{{ view.branch.id }}" href="{{ workspace_url(branch_id=view.branch.id, commit=None, detail='branch') }}" title="{{ view.branch.name }} · {{ states.get(view.state, t('未分析')) }}" aria-current="{{ 'true' if view.branch.id == selected_branch_id else 'false' }}">
+                {{ icon('branch') }}<span class="git-branch-name">{{ view.branch.name }}</span>
+                {% if view.prs %}<span class="git-pr-dot" title="PR / MR"></span>{% endif %}
+                <span class="git-relation-dot state-{{ view.state }}" aria-label="{{ states.get(view.state, t('未分析')) }}"></span>
+              </a>
+            {% endfor %}
+          </details>
+          {% endif %}
+        {% endfor %}
+        {% if not views %}<p class="git-tree-empty">{{ t('没有符合筛选条件的分支。') if query.q or query.role or query.relation else t('空仓库：当前没有分支。') }}<a href="{{ workspace_url(q='', role='', relation='', page=1, branch_id=None, commit=None) }}">{{ t('重置') }}</a></p>{% endif %}
+      </nav>
+      <nav class="git-tree-pagination" aria-label="{{ t('分支分页') }}">
+        <span>{{ t('第 {page} 页 · {total} 个分支', page=query.page, total=total) }}</span>
+        <div>{% if query.page > 1 %}<a href="{{ workspace_url(page=query.page-1) }}" aria-label="{{ t('← 上一页') }}">←</a>{% endif %}{% if query.page*50 < total %}<a href="{{ workspace_url(page=query.page+1) }}" aria-label="{{ t('下一页 →') }}">→</a>{% endif %}</div>
+      </nav>
+    </aside>
+    <div id="git-content" class="git-content">{% include 'git_log.html' %}</div>
+  </div>
+  <footer class="git-statusbar">
+    <span>{{ icon('branch') }} {{ repo.connection.kind|upper }} · {{ repo.name }}</span>
+    <span id="git-load-status" role="status" aria-live="polite">{{ t('选择分支筛选历史，选择提交查看详情。') }}</span>
+    <span>UTC</span>
+  </footer>
+</div>
+{% endblock %}

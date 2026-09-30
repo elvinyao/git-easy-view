@@ -3,22 +3,22 @@
 {% block content %}
   <header class="page-heading">
     <div>
-      <p class="eyebrow">REPOSITORY / 仓库</p>
+      <p class="eyebrow">{{ t('REPOSITORY / 仓库') }}</p>
       <h1>{{ repo.full_name }}</h1>
-      <p class="muted">{{ repo.connection.name }} · 默认分支 {{ repo.default_branch or '未知' }}</p>
+      <p class="muted">{{ repo.connection.name }} {{ t('· 默认分支') }} {{ repo.default_branch or t('未知') }}</p>
     </div>
-    {% if user.is_admin %}<a class="button" href="/admin/repositories/{{ repo.id }}">仓库配置</a>{% endif %}
+    {% if user and user.is_admin %}<a class="button" href="/admin/repositories/{{ repo.id }}">{{ t('仓库配置') }}</a>{% endif %}
   </header>
   <div class="metrics">
     <div>
-      <span>Git 同步</span><strong class="date-value">{{ repo.git_synced_at|date }}</strong>
+      <span>{{ t('Git 同步') }}</span><strong class="date-value">{{ repo.git_synced_at|date }}</strong>
     </div>
     <div>
-      <span>API 同步</span><strong class="date-value">{{ repo.api_synced_at|date }}</strong>
+      <span>{{ t('API 同步') }}</span><strong class="date-value">{{ repo.api_synced_at|date }}</strong>
     </div>
   </div>
   <nav class="admin-tabs">
-    <span>分支与提交关系</span><a href="/repositories/{{ repo.id }}/pull-requests">PR / MR 平台记录 →</a>
+    <span>{{ t('分支与提交关系') }}</span><a href="/repositories/{{ repo.id }}/pull-requests">{{ t('PR / MR 平台记录 →') }}</a>
   </nav>
   {% include 'filters.html' %}
   <section class="panel">
@@ -27,7 +27,7 @@
          data-auto="true"
          data-page="{{ query.page }}">
       <p class="empty">
-        正在加载分支… <a href="/repositories/{{ repo.id }}/branches">打开分支列表</a>
+        {{ t('正在加载分支…') }} <a href="/repositories/{{ repo.id }}/branches">{{ t('打开分支列表') }}</a>
       </p>
     </div>
   </section>
