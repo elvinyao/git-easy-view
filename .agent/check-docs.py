@@ -12,6 +12,7 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parents[1]
 LANGUAGES = ("zh-CN", "ja", "en")
 GUIDES = ("user-guide.md", "development.md", "docker-deployment.md")
+INTRANET_GUIDES = ("deploy/README.md", "deploy/README.ja.md", "deploy/README.en.md")
 
 
 def anchors(content: str) -> set[str]:
@@ -34,6 +35,7 @@ def main() -> int:
     errors = []
     documents = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "docs/README.md"]
     documents += [ROOT / "docs" / language / guide for language in LANGUAGES for guide in GUIDES]
+    documents += [ROOT / guide for guide in INTRANET_GUIDES]
     for document in documents:
         content = document.read_text()
         for target in re.findall(r"\[[^\]\n]+\]\(([^)]+)\)", content):
@@ -55,7 +57,13 @@ def main() -> int:
             translated = commands((ROOT / "docs" / language / guide).read_text())
             if translated != baseline:
                 errors.append(f"{language}/{guide}: shell commands differ from the Chinese edition")
-    for path, shell in ((".agent/run.sh", "bash"), (".agent/deploy.sh", "sh")):
+    baseline = commands((ROOT / INTRANET_GUIDES[0]).read_text())
+    for guide in INTRANET_GUIDES[1:]:
+        if commands((ROOT / guide).read_text()) != baseline:
+            errors.append(f"{guide}: shell commands differ from the Chinese edition")
+    shell_files = [(".agent/run.sh", "bash"), (".agent/deploy.sh", "sh")]
+    shell_files += [(str(path.relative_to(ROOT)), "sh") for path in sorted((ROOT / "deploy").glob("*.sh"))]
+    for path, shell in shell_files:
         result = subprocess.run([shell, "-n", str(ROOT / path)], capture_output=True, text=True)
         if result.returncode:
             errors.append(f"{path}: {result.stderr.strip()}")

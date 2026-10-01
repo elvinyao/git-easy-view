@@ -10,6 +10,10 @@ All three editions cover the same features, commands, and deployment procedure.
 | 日本語 | [ユーザーガイド](ja/user-guide.md) | [開発ガイド](ja/development.md) | [Docker・自動デプロイ](ja/docker-deployment.md) |
 | English | [User guide](en/user-guide.md) | [Development guide](en/development.md) | [Docker and automated deployment](en/docker-deployment.md) |
 
+需要出站代理与公司 CA 的内网使用独立的 `deploy/` 部署流程：[中文](../deploy/README.md) · [日本語](../deploy/README.ja.md) · [English](../deploy/README.en.md)。
+社内プロキシと CA が必要な場合は、上記の専用デプロイガイドを使用してください。
+Use these standalone deployment guides for corporate outbound proxies and company CAs.
+
 ## 快速启动 / クイックスタート / Quick start
 
 在仓库根目录执行；需要 Docker 正在运行，无需宿主 Python 或 Node.js。

@@ -2,6 +2,8 @@
 
 [文档目录](../README.md) · [日本語](../ja/docker-deployment.md) · [English](../en/docker-deployment.md)
 
+需要 HTTP/HTTPS 出站代理下载依赖、访问 Git，以及映射公司 CA 的内网，使用独立的 [deploy/ 内网部署指南](../../deploy/README.md)：入口为 `bash .agent/run.sh deploy-intranet`，包含独立 Dockerfile、初始化配置、CA 信任和运维命令。本页的 `deploy` 继续适用于个人电脑直连环境。
+
 ## 1. 环境要求与单容器结构
 
 安装并启动 Docker Desktop 或 Docker Engine；从仓库根目录执行命令。宿主只读源码或编辑文件，项目执行统一使用 `bash .agent/run.sh ...`。

@@ -2,6 +2,8 @@
 
 [Documentation index](../README.md) · [简体中文](../zh-CN/docker-deployment.md) · [日本語](../ja/docker-deployment.md)
 
+For HTTP/HTTPS proxies used to download dependencies and access Git, plus company CA mounts, use the separate [deploy/ intranet deployment guide](../../deploy/README.en.md). Its entry point is `bash .agent/run.sh deploy-intranet`, with a dedicated Dockerfile, configuration setup, CA trust, and operations commands. The original `deploy` workflow described here remains available for direct access on personal computers.
+
 ## 1. Prerequisites and single-container layout
 
 Start Docker Desktop or Docker Engine and run commands from the repository root. Inspect or edit source on the host; execute project commands through `bash .agent/run.sh ...`.

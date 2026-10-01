@@ -26,6 +26,11 @@ MAX_OUTPUT = 4 * 1024 * 1024
 MAX_BRANCHES = 10000
 MAX_COMMITS = 500
 OID = re.compile(r"^[0-9a-f]{40,64}$")
+TRANSPORT_ENVIRONMENT = frozenset({
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "no_proxy",
+    "GIT_SSL_CAINFO", "GIT_PROXY_SSL_CAINFO", "SSL_CERT_FILE", "CURL_CA_BUNDLE",
+})
 
 
 class GitError(RuntimeError):
@@ -99,9 +104,12 @@ def _environment(extra: dict[str, str] | None, *, allow_file_transport: bool) ->
         "GIT_PROTOCOL_FROM_USER": "0",
         "GIT_ALLOW_PROTOCOL": "https:file" if allow_file_transport else "https",
     }
+    # Corporate proxies and trusted roots are deployment settings. Inherit only
+    # these transport options, never ambient Git config or verification bypasses.
+    env.update({key: os.environ[key] for key in TRANSPORT_ENVIRONMENT if key in os.environ})
     if extra:
         for key, value in extra.items():
-            if key.startswith("GIT_") and key not in {"GIT_ASKPASS", "GIT_SSL_CAINFO"}:
+            if key.startswith("GIT_") and key not in {"GIT_ASKPASS", "GIT_SSL_CAINFO", "GIT_PROXY_SSL_CAINFO"}:
                 raise ValueError(f"Git environment override is not allowed: {key}")
             if key in {"HOME", "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH"}:
                 raise ValueError(f"Environment override is not allowed: {key}")

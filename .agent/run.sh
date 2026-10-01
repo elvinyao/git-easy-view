@@ -8,6 +8,29 @@ if [[ -t 0 && -t 1 ]]; then
   TTY_FLAG="-t"
 fi
 
+# Independent proxy/CA-aware deployment. Preparation needs no downloads or
+# project dependencies; all project scripts still execute inside containers.
+if [[ "${1:-}" == "deploy-intranet" ]]; then
+  shift
+  docker run --rm -i ${TTY_FLAG:+-t} --init \
+    -v "${PROJECT_ROOT}:/workspace" -w /workspace "${IMAGE}" \
+    python deploy/setup.py "$@"
+  exec docker run --rm -i ${TTY_FLAG:+-t} --init \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "${PROJECT_ROOT}:/workspace" -v "${PROJECT_ROOT}:${PROJECT_ROOT}" \
+    -e "GEV_PROJECT_ROOT=${PROJECT_ROOT}" -w /workspace docker:28-cli \
+    sh deploy/deploy.sh "$@"
+fi
+
+if [[ "${1:-}" == "intranet-compose" ]]; then
+  shift
+  exec docker run --rm -i ${TTY_FLAG:+-t} --init \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "${PROJECT_ROOT}:/workspace" -v "${PROJECT_ROOT}:${PROJECT_ROOT}" \
+    -e "GEV_PROJECT_ROOT=${PROJECT_ROOT}" -w /workspace docker:28-cli \
+    sh deploy/compose.sh "$@"
+fi
+
 # Bootstrap and deployment orchestration both execute inside containers.
 if [[ "${1:-}" == "deploy" ]]; then
   shift

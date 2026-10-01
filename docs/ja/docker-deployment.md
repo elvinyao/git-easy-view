@@ -2,6 +2,8 @@
 
 [ドキュメント一覧](../README.md) · [简体中文](../zh-CN/docker-deployment.md) · [English](../en/docker-deployment.md)
 
+依存取得や Git 接続に HTTP/HTTPS プロキシと社内 CA が必要な場合は、独立した [deploy/ 社内デプロイガイド](../../deploy/README.ja.md)を使用してください。入口は `bash .agent/run.sh deploy-intranet` で、専用 Dockerfile、設定準備、CA 信頼、運用手順を含みます。本ページの `deploy` は個人 PC の直接接続でも引き続き使えます。
+
 ## 1. 必要環境と単一コンテナ構成
 
 Docker Desktop または Docker Engine を起動し、リポジトリのルートから実行します。ホストではソースの参照・編集だけを行い、実行には `bash .agent/run.sh ...` を使います。

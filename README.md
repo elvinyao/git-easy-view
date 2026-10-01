@@ -1,6 +1,6 @@
 # Git Easy View
 
-面向团队的 Git 仓库与分支看板。项目及其关联仓库开放匿名只读访问，无需账号或成员授权；管理员登录后配置 GitHub / GitHub Enterprise、GitLab / 自建 GitLab 连接、导入仓库和管理分析规则。Python 3.13、FastAPI/Jinja/jQuery、PostgreSQL、Redis/RQ 与原生 Git；不需要 Node 构建。
+面向团队的 Git 仓库与分支看板。项目及其关联仓库开放匿名只读访问，无需账号或成员授权；管理员登录后配置 GitHub / GitHub Enterprise、GitLab / 自建 GitLab 连接、导入仓库和管理分析规则。Python 3.13、FastAPI/Jinja/jQuery、SQLite 数据库任务队列与原生 Git；默认仅一个应用容器，无需 PostgreSQL、Redis 或 Node 构建。
 
 配置页面、令牌、用户管理、立即同步与本地分析请求均仅限管理员，写请求继续验证 CSRF。未关联任何项目的仓库只向管理员开放。项目名称和成员名单不控制公开查看权限；导入或关联到项目后，其缓存的分支、提交和 PR/MR 记录即可匿名查看。
 
@@ -13,6 +13,8 @@
 | English | [User guide](docs/en/user-guide.md) | [Development guide](docs/en/development.md) | [Deployment and operations](docs/en/docker-deployment.md) |
 
 完整三语文档入口：[docs/README.md](docs/README.md)。以下为中文功能与操作摘要。
+
+需要 HTTP/HTTPS 出站代理和公司 CA 的内网，请使用独立的 [deploy/ 部署指南](deploy/README.md)（[日本語](deploy/README.ja.md) / [English](deploy/README.en.md)）：先运行 `bash .agent/run.sh deploy-intranet --init`，编辑网络配置并放入 CA，再运行 `bash .agent/run.sh deploy-intranet`。原个人电脑部署入口保持兼容。
 
 ## 一条命令快速部署
 
