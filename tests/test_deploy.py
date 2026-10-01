@@ -49,7 +49,9 @@ def test_first_deployment_is_valid_and_redeployment_preserves_secrets(deployment
     assert Path("runtime/demo-access.json").read_bytes() == access
     output = capsys.readouterr().out
     assert "Preserved runtime/local.env" in output
-    for key in ("POSTGRES_PASSWORD", "GEV_CREDENTIAL_KEY", "GEV_SESSION_SECRET"):
+    assert values["GEV_DATABASE_URL"] == "sqlite:////data/db/gev.sqlite3"
+    assert "POSTGRES_PASSWORD" not in values and "GEV_REDIS_URL" not in values
+    for key in ("GEV_CREDENTIAL_KEY", "GEV_SESSION_SECRET"):
         assert values[key] not in output
 
 
@@ -75,7 +77,7 @@ def test_production_has_independent_secrets_and_project(deployment_directory):
     assert production["GEV_PORT"] == "8767"
     assert production["GEV_PRODUCTION"] == production["GEV_COOKIE_SECURE"] == "true"
     Fernet(production["GEV_CREDENTIAL_KEY"].encode())
-    for key in ("POSTGRES_PASSWORD", "GEV_CREDENTIAL_KEY", "GEV_SESSION_SECRET"):
+    for key in ("GEV_CREDENTIAL_KEY", "GEV_SESSION_SECRET"):
         assert production[key] != local[key]
     original = target.read_bytes()
     assert setup.prepare(options("--production")) == (target, False)
@@ -119,8 +121,8 @@ def test_custom_environment_has_its_own_env_file_and_project(deployment_director
 
 def test_invalid_configuration_error_does_not_expose_password(deployment_directory, capsys):
     target, _ = setup.prepare(options())
-    password = setup.read_env(target)["POSTGRES_PASSWORD"]
-    original = target.read_text().replace("@postgres:5432/gev", "@other-host:5432/gev")
+    password = setup.read_env(target)["GEV_CREDENTIAL_KEY"]
+    original = target.read_text().replace("sqlite:////data/db/gev.sqlite3", "postgresql://user:SECRET_PROBE@other-host/gev")
     target.write_text(original)
     with pytest.raises(SystemExit) as result:
         setup.main([])
@@ -143,7 +145,7 @@ if args[0] == 'compose':
         sys.exit(11)
     if os.environ.get('DEPLOY_FAIL') == 'migration' and command[:1] == ['run'] and command[-1] == 'migrate':
         sys.exit(12)
-    if os.environ.get('DEPLOY_FAIL') == 'health' and command[:1] == ['up'] and command[-1] == 'dispatcher':
+    if os.environ.get('DEPLOY_FAIL') == 'health' and command[:1] == ['up'] and command[-1] == 'web':
         sys.exit(13)
     if command[:1] == ['port']:
         print('127.0.0.1:8766')
@@ -173,7 +175,7 @@ def test_deployment_stops_writers_and_runs_migration_on_every_attempt(fake_docke
     assert result.returncode == 0, result.stderr
     stop = calls.index(["stop", "web", "worker", "dispatcher"])
     migrate = calls.index(["run", "--rm", "--no-deps", "-T", "migrate"])
-    startup = calls.index(["up", "-d", "--no-deps", "--no-build", "--wait", "--wait-timeout", "180", "web", "worker", "dispatcher"])
+    startup = calls.index(["up", "-d", "--no-deps", "--no-build", "--wait", "--wait-timeout", "180", "web"])
     assert stop < migrate < startup
     assert calls[0] == ["config", "--quiet"]
     assert "No accounts" in result.stdout
@@ -199,4 +201,4 @@ def test_deployment_failure_is_nonzero_and_never_deletes_volumes(fake_docker, fa
         assert not any(call[0] == "stop" for call in calls)
     if failure == "migration":
         assert "remain stopped" in result.stderr
-        assert not any(call[0] == "up" and call[-1] == "dispatcher" for call in calls)
+        assert not any(call[0] == "up" and call[-1] == "web" for call in calls)

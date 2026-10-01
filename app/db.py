@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 
 def make_engine(database_url: str) -> Engine:
-    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    connect_args = {"check_same_thread": False, "timeout": 30} if database_url.startswith("sqlite") else {}
     engine = create_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
     if engine.dialect.name == "sqlite":
         @event.listens_for(engine, "connect")
@@ -15,6 +15,8 @@ def make_engine(database_url: str) -> Engine:
             cursor = dbapi_connection.cursor()
             try:
                 cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA journal_mode=WAL")
             finally:
                 cursor.close()
     return engine

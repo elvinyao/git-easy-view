@@ -2,67 +2,38 @@
 
 [ドキュメント一覧](../README.md) · [简体中文](../zh-CN/docker-deployment.md) · [English](../en/docker-deployment.md)
 
-## 1. 前提条件とサービス構成
+## 1. 必要環境と単一コンテナ構成
 
-Docker を使える単一 Linux サーバー、または Docker Desktop の開発機向けです。`.agent/` を含むソースを配置し、リポジトリ直下で実行してください。ホストの Python、Node.js、pip、Compose プラグインは不要です。
+Docker Desktop または Docker Engine を起動し、リポジトリのルートから実行します。ホストではソースの参照・編集だけを行い、実行には `bash .agent/run.sh ...` を使います。
 
-入口は `bash .agent/run.sh ...` です。通常コマンドは `python:3.13-bookworm`、Compose とデプロイ制御は `docker:28-cli` 内で実行します。Docker daemon を起動し、runner に `/var/run/docker.sock` と作業ディレクトリへのアクセス権を与えます。この socket はホストの管理権限を持つため、信頼できる運用担当者と CI だけで使用してください。
+常駐するのは **web コンテナ 1 個**です。Web、定期実行、バックグラウンドジョブ処理を含みます。SQLite にプロジェクト、ユーザー、ブランチ、ジョブを保存するため PostgreSQL と Redis は不要です。ジョブは順次実行し、その間も既存スナップショットを閲覧できます。子プロセスが終了するとコンテナを再起動し、未完了ジョブを DB から復旧します。
 
-| サービス | 役割 | 永続化 |
-|---|---|---|
-| `postgres` | PostgreSQL 17、設定・スナップショット・ユーザー・監査・ジョブ / outbox | `postgres-data` |
-| `redis` | Redis 7.4、RQ キューと再試行スケジュール | `redis-data`、AOF 有効 |
-| `migrate` | 一度だけ `alembic upgrade head` を実行 | 共通 DB |
-| `web` | FastAPI / Uvicorn、コンテナ内ポート 8000 | 共通 Git cache |
-| `worker` | 2 つの RQ worker、Git / API 同期と比較 | `git-cache` |
-| `dispatcher` | 定期同期対象の確認、outbox 再投入 | DB と Redis |
-| `tools` | ソースをマウントする単発管理 CLI | 常駐しない |
-| `integration`, `browser` | 任意の検証イメージ | 通常は起動しない |
+永続ボリュームは SQLite の `app-data:/data/db` と Git の `git-cache:/data/git` の 2 個です。ボリュームはコンテナではありません。デプロイ時の一時ツール・マイグレーションコンテナは終了後に削除します。旧サービスは移行・互換テスト用の `legacy` profile のみです。
 
-ホストへ公開するのは Web の **127.0.0.1** ポートだけです。DB と Redis はホストへ公開しません。`/health` は DB を確認し、Redis 障害中もキャッシュ閲覧は可能です。worker / dispatcher にも個別のヘルスチェックがありますが、正常表示は全リポジトリの同期完了を意味しません。
+SQLite は WAL と 30 秒のロック待機を使用します。単一ホストで十数個のリポジトリを見る用途に適しています。DB をネットワークファイルシステムに置いたり、web のレプリカを増やしたりしないでください。
 
-## 2. shell 1 コマンドでデプロイ
+## 2. shell コマンド 1 つでデプロイ
 
-ローカルのデモ／開発環境：
+初回とソース更新後は最初のコマンドを使います。2 番目は既存イメージを再利用し、3 番目は Python のベースイメージも更新します。
 
 ```bash
 bash .agent/run.sh deploy
-```
-
-初回は `runtime/local.env` を作成し、DB パスワード、session secret、Fernet key をランダム生成します。権限は 0600 です。`.venv` は不要で、アカウントやサンプルデータは自動作成しません。成功後は [http://127.0.0.1:8766](http://127.0.0.1:8766) を開きます。
-
-再実行は env の内容、キー、アカウント、データボリュームを保持します。初回のダウンロード・依存関係インストールにはネットワークと時間が必要です。以後は Docker のビルドキャッシュを利用します。固定の所要秒数は保証しません。
-
-```bash
-# ソース変更後：現在の checkout をビルドしてデプロイ
-bash .agent/run.sh deploy
-
-# ソース・依存関係が同じで正しいイメージがある場合：ビルド省略
 bash .agent/run.sh deploy --no-build
-
-# PostgreSQL / Redis と、ビルド時の Python ベースを明示的に更新
 bash .agent/run.sh deploy --pull
-
 bash .agent/run.sh deploy --help
 ```
 
-`--no-build` では新しいソースは古いイメージへ入りません。未ビルドの変更を本番へ反映する用途には使わないでください。
+既定 URL は [http://127.0.0.1:8766](http://127.0.0.1:8766) です。`runtime/local.env`（0600）を生成または保持し、ビルド、書き込みプロセス停止、マイグレーション、web 起動、正常性確認を行います。失敗時は非ゼロ終了で、設定とボリュームを保持します。アカウントとサンプルは自動作成しません。
 
-| オプション | 用途 |
-|---|---|
-| `--production` | 本番モード。既定は `runtime/production.env`、8767、Secure cookie |
-| `--env-file runtime/name.env` | runtime 内の相対 env パス。新しい独自ファイルにはプロジェクト名も必要 |
-| `--project-name gev-staging` | 新規設定の Compose 名。ネットワーク、コンテナ、ボリューム、生成イメージタグを分離 |
-| `--port 8770` | 新規設定の loopback ポート |
-| `--no-build` | 既存アプリケーションイメージを使用 |
-| `--pull` | ベース／インフラのイメージを取得。Python の依存バージョンは自動更新しない |
-| `--wait-timeout 300` | 各ヘルス待機段階の秒数上限。既定 180。ビルド全体の制限ではない |
+既存 PostgreSQL 環境からの初回移行：
 
-既存 env のポートやプロジェクト名はオプションで上書きしません。明示的に env を編集してください。通常の `KEY=value`、行全体のコメント、単純な引用符に対応し、変数展開は使えません。高速スクリプトは Compose 内の `gev` PostgreSQL DB と `/data/git` を使用します。外部 DB は Compose と運用手順を別途調整してください。
+```bash
+bash .agent/run.sh deploy --migrate-sqlite
+```
 
-手順は設定検証 → 任意の pull → ビルド → アプリ設定検証 → PostgreSQL / Redis 待機 → Web / worker / dispatcher 停止 → 新イメージでマイグレーション → 起動・全アプリサービスのヘルス待機 → 状態・ポート表示です。毎回マイグレーションを明示実行し、過去に成功した migrate コンテナには依存しません。
+旧書き込みプロセスを停止して各テーブルをコピーし、全フィールド、外部キー、整合性を検証します。成功後に DB URL を変更し、PostgreSQL、Redis、旧 worker を停止します。ユーザー、ID、暗号化 token、セッションキー、Git キャッシュは保持します。旧 env は `runtime/local.env.postgres-backup` に保存し、元の DB ボリュームは削除しません。SQLite が既に存在する場合は上書きを拒否します。本番は `--production` を追加してください。
 
-短い停止時間のある単一ホストのデプロイです。Git 取得、自動バックアップ、自動ロールバック、ボリューム削除、既存 env の上書きは行いません。ビルド失敗ならアプリ停止前、マイグレーション失敗ならアプリを停止したまま非ゼロ終了します。修正または検証済みバックアップの復元後に再実行してください。同一環境の CI デプロイは直列化します。
+以後は通常の `deploy` だけです。旧 DB URL だけを SQLite に書き換えると空の DB を参照するため、この移行を使ってください。失敗時はログと保持ファイルを確認し、元のボリュームを削除しないでください。移行後の旧 DB へのロールバックには SQLite 側の新しい変更は含まれません。
 
 ## 3. 管理者と任意のサンプルデータ
 
@@ -156,85 +127,60 @@ token は Fernet で暗号化して DB に保存します。`GEV_CREDENTIAL_KEY`
 
 ## 6. 主要な設定
 
-`.env.example` はフィールドとプレースホルダーの参照用です。そのまま実行用には使えません。初回は通常スクリプトで生成し、以後は明示的に編集します。各プロセスで同じ値を使ってください。
+`.env.example` はフィールド参照です。再デプロイでキーは変更しません。
 
-| フィールド | 意味 / 既定値 |
+| フィールド | 既定値 / 用途 |
 |---|---|
-| `COMPOSE_PROJECT_NAME` | 環境分離名。変更すると別のボリュームを参照 |
-| `GEV_ENV_FILE` | サービスが読む env。`--env-file` と一致させる |
-| `GEV_APP_IMAGE` | アプリイメージタグ。古い local 設定で省略時は `git-easy-view:local` |
-| `POSTGRES_PASSWORD`, `GEV_DATABASE_URL` | 一致が必要。既存 DB のパスワードはファイル変更だけでは変わらない |
-| `GEV_SESSION_SECRET` | 32 文字以上の安定したランダム値。更新で既存セッション失効 |
-| `GEV_CREDENTIAL_KEY` | ランダム 32 バイトを URL-safe Base64 化した Fernet key |
-| `GEV_REDIS_URL` | `redis://redis:6379/0` |
-| `GEV_CACHE_ROOT` | `/data/git`、Web / worker 共用 |
-| `GEV_PRODUCTION`, `GEV_COOKIE_SECURE` | 本番はともに `true` |
+| `GEV_DATABASE_URL` | `sqlite:////data/db/gev.sqlite3`、永続 DB |
+| `GEV_JOB_BACKEND` | `database`、Redis 不要 |
+| `GEV_CACHE_ROOT` | `/data/git` |
+| `GEV_SESSION_SECRET` | 32 文字以上の安定したランダム値 |
+| `GEV_CREDENTIAL_KEY` | DB と一緒に保存する Fernet key |
+| `GEV_PRODUCTION`, `GEV_COOKIE_SECURE` | 本番は両方 `true` |
 | `GEV_PORT` | local 8766、production 8767、loopback のみ |
-| `GEV_QUEUE_NAME` | RQ キュー名、`git-sync` |
-| `GEV_JOB_TIMEOUT_SECONDS` | ジョブ時間上限、3600 秒 |
-| `GEV_SCHEDULER_INTERVAL_SECONDS` | dispatcher 周期、15 秒 |
-| `GEV_HEARTBEAT_INTERVAL_SECONDS` | ジョブ heartbeat、15 秒 |
-| `GEV_SESSION_MAX_AGE` | セッション有効期間、43200 秒 |
+| `COMPOSE_PROJECT_NAME` | 別環境は別名でボリュームを分離 |
+| `GEV_ENV_FILE` | `--env-file` と一致 |
+| `GEV_APP_IMAGE` | 環境のアプリイメージタグ |
+| `GEV_JOB_TIMEOUT_SECONDS` | 3600 秒 |
+| `GEV_SCHEDULER_INTERVAL_SECONDS` | 15 秒、同期対象検出と中断ジョブ復旧 |
+| `GEV_HEARTBEAT_INTERVAL_SECONDS` | 15 秒 |
+| `GEV_SESSION_MAX_AGE` | 43200 秒 |
 
-リポジトリの同期間隔は既定 300 秒で、管理画面から変更します。本番設定は SQLite、キー不足、Secure cookie の明示的無効化を拒否します。既存 PostgreSQL のパスワード変更では、DB 内の変更と env・サービス再起動を調整してください。
+キューは毎秒確認します。リポジトリの同期間隔は既定 300 秒で管理画面から変更します。本番は絶対パスの SQLite を許可しますが、安定したキーと Secure cookie は必須です。PostgreSQL/RQ アダプターは互換用途として残しています。
 
-## 7. 日常操作と障害確認
+## 7. 日常操作と診断
 
-以下は production の例です。local は env ファイルを変更します。
+ローカル環境では `runtime/local.env` に変更します。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env ps -a
-bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web worker dispatcher
-bash .agent/run.sh compose --env-file runtime/production.env exec -T web python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/health").read().decode())'
+bash .agent/run.sh compose --env-file runtime/production.env ps
+bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web
 bash .agent/run.sh compose --env-file runtime/production.env exec -T web alembic current
-
-# コンテナ・ボリュームを保持して停止
-bash .agent/run.sh compose --env-file runtime/production.env stop
-
-# 設定・イメージに変更がない場合の復帰。更新は deploy を使用
-bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300
+bash .agent/run.sh compose --env-file runtime/production.env stop web
+bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300 web
 ```
 
-`--wait` は running / healthy を待ち、失敗を通知します。[Compose up の公式オプション](https://docs.docker.com/reference/cli/docker/compose/up/)。ログにはリポジトリ、パス、ユーザー情報があり得ます。秘密を共有しないでください。全設定を表示する `compose config` ではなく `config --quiet` を使用します。
+`ps` の実行中サービスは web 1 個です。`ps -a` に表示される移行前の停止コンテナは実行リソースを消費しません。
 
-| 症状 | 確認 |
-|---|---|
-| Docker socket に接続できない | Docker 起動とアカウント権限。ホスト Python へ切り替えない |
-| ポート使用中 | `GEV_PORT` を明示編集し、プロキシ upstream も変更 |
-| PostgreSQL 認証失敗 | 既存ボリュームと env のパスワードを照合。env 再生成で直さない |
-| migrate 失敗 | 移行出力と DB を確認。アプリを停止したまま修正／復元後に deploy |
-| ヘルス待機タイムアウト | `ps -a` とログ。原因を除外してから待機時間を延長 |
-| 閲覧できるが同期されない | worker、dispatcher、Redis、接続停止、token / CA、同期状態 |
-| ログインが繰り返される | HTTPS、cookie、プロキシ、共通 session secret |
-| token 復号失敗 | DB に対応する Fernet key を復元。古いキーを上書きしない |
+Docker に接続できない場合は Docker を起動し、ホスト Python へ切り替えないでください。同期が進まない場合は web ログ、接続の停止状態、token/CA を確認します。DB が busy の場合は追加の手動実行プロセスを確認してください。WAL、キャッシュ、ロックは削除しないでください。マイグレーション失敗時は停止状態で修正・復旧後に再デプロイします。ログインループは HTTPS/cookie/セッションキー、復号失敗は対応する Fernet key を確認します。
 
-worker 強制終了後に Git 子プロセスとロックが残る場合があります。対象プロセス終了または worker コンテナ再起動で活動がないことを確認してください。実行中の Git キャッシュやロックを削除しません。
+## 8. バックアップ、復元、ロールバック
 
-## 8. バックアップ、復元、更新の取り消し
-
-公開前に PostgreSQL と対応 env（特に Fernet key）をバックアップし、CA も管理して保存します。Git cache は再取得でき、保存すると復旧を短縮できます。Redis は配送層で、ジョブの事実は DB outbox にあります。
-
-例は `runtime/backups/pre-deploy/` です。毎回別のバックアップ先に変え、唯一のコピーを上書きしないでください。書き込み・リダイレクトはコンテナ内です。
+SQLite backup API でオンラインバックアップを行うため、WAL 内のコミット済みデータも含みます。稼働中の DB ファイルを単純コピーしません。毎回新しいディレクトリを指定してください。既存ディレクトリは拒否します。env のキーも保存し、管理された暗号化ストレージへ退避してください。
 
 ```bash
-bash .agent/run.sh python -c 'import os,shutil; from pathlib import Path; os.umask(0o077); p=Path("runtime/backups/pre-deploy"); p.mkdir(parents=True,exist_ok=True); shutil.copyfile("runtime/production.env",p/"deployment.env"); os.chmod(p/"deployment.env",0o600)'
-bash .agent/run.sh compose --env-file runtime/production.env exec -T postgres sh -c 'umask 077; pg_dump -U gev -d gev -Fc -f /tmp/gev-backup.dump'
-bash .agent/run.sh compose --env-file runtime/production.env cp postgres:/tmp/gev-backup.dump /workspace/runtime/backups/pre-deploy/gev.dump
-bash .agent/run.sh python -c 'import os; os.chmod("runtime/backups/pre-deploy/gev.dump",0o600)'
+bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/pre-deploy --env-file runtime/production.env
 ```
 
-社内の暗号化バックアップシステムへ移し、隔離環境で定期的に復元を試します。復元は対象 DB を上書きします。環境、バックアップのバージョン、対応キーを確認後、すべてのアプリ書き込みを停止してください。
+復元は現在の DB を上書きします。対象を確認して web を停止し、tools や開発プロセスも DB に接続しない状態にしてください。env はバックアップと一致する必要があります。異なる場合は対応する設定を確認・復元してください。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env stop web worker dispatcher
-bash .agent/run.sh compose --env-file runtime/production.env cp /workspace/runtime/backups/pre-deploy/gev.dump postgres:/tmp/gev-restore.dump
-bash .agent/run.sh compose --env-file runtime/production.env exec -T postgres pg_restore -U gev -d gev --clean --if-exists --exit-on-error /tmp/gev-restore.dump
-bash .agent/run.sh deploy --production --wait-timeout 300
+bash .agent/run.sh compose --env-file runtime/production.env stop web
+bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T tools python .agent/sqlite-backup.py restore runtime/backups/pre-deploy --env-file runtime/production.env
+bash .agent/run.sh deploy --production --no-build
 ```
 
-最後のコマンドは現在の checkout までアップグレードします。バックアップ時のバージョンへ戻すなら、そのソースを管理されたリリースから先に復元してください。旧コードと新 schema の互換性は保証されず、旧イメージへの切り替えだけでは安全に戻せません。対応キーを復元してから起動します。
-
-通常の停止で `down -v` を使わないでください。永続ボリュームを削除します。`runtime/production.env` の削除も再インストール手順にはしません。既存データ復旧に必要なキーが保存されています。
+Git キャッシュは再取得できます。復旧時間短縮には停止中のボリュームも別途保存できます。旧コードへ戻す際は schema 互換性を確認し、必要なら対応する DB とキーも復元します。`down -v` はデータを削除するため使用しないでください。
 
 ## 9. 受け入れ確認と容量の限界
 

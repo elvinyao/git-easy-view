@@ -4,7 +4,7 @@
 
 ## 1. 技术栈与目录
 
-Python 3.13，FastAPI，SQLAlchemy / Alembic，Jinja2，原生 CSS / JavaScript 与 vendored jQuery；PostgreSQL 17、Redis 7.4、RQ。前端无需 Node 构建。
+Python 3.13，FastAPI，SQLAlchemy / Alembic，Jinja2，CSS / JavaScript 与 vendored jQuery；默认 SQLite，无需 Redis。前端无需 Node 构建。
 
 | 路径 | 用途 |
 |---|---|
@@ -12,7 +12,7 @@ Python 3.13，FastAPI，SQLAlchemy / Alembic，Jinja2，原生 CSS / JavaScript 
 | `app/routes/` | 登录、公开读取、管理员操作等 HTTP 路由 |
 | `app/providers/` | GitHub / GitLab API 适配、HTTPS 与地址校验 |
 | `app/git_service.py`, `git_workspace.py` | 本地 Git 执行、提交履历及文件详情 |
-| `app/sync.py`, `jobs.py`, `scheduler.py` | 快照发布、数据库 outbox、RQ 投递与定时调度 |
+| `app/sync.py`, `jobs.py`, `scheduler.py`, `worker.py`, `server.py` | 快照发布、数据库任务队列、定时调度、子进程与单容器启动 |
 | `app/relations.py`, `project_overview.py` | 分支证据、项目批量总览 |
 | `app/templates/`, `app/static/`, `app/locales/` | 页面、静态资源、三语消息目录 |
 | `alembic/versions/` | 数据库迁移 |
@@ -68,7 +68,7 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools
 
 ## 4. 架构与必须保持的行为
 
-后台流程是：dispatcher 找到到期仓库 → 数据库写入任务事实 / outbox → Redis 投递 → RQ worker 获取仓库锁 → 抓取 Git 和 API → 按固定 OID 分析 → 发布快照。Redis 不是任务事实来源；丢投递、进程退出或 Redis 重启后由 outbox 恢复。
+`app.server` 执行迁移后启动 Web 和 `app.worker`。worker 定期查找到期仓库，将任务写入 SQLite，串行启动独立任务子进程；子进程持有仓库锁，抓取 Git/API 并按固定 OID 发布快照。数据库是任务事实来源，重启后恢复中断任务；无需 Redis。SQLite 使用 WAL 和 30 秒锁等待，保持短事务。任务超时会终止子进程，最多尝试 5 次。不要把网络请求放进持有写锁的事务。
 
 Git 与 API 更新时间独立。分支比较基于不可变 OID 和规则版本缓存，不能在分析过程中混用移动 ref。来源候选、人工声明、计划目标、当前可达性和历史 PR/MR 应分别呈现。
 
@@ -117,12 +117,11 @@ bash .agent/run.sh python .agent/check-docs.py
 
 ```bash
 bash .agent/run.sh compose --env-file runtime/local.env build integration browser
-bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_INTEGRATION=1 integration python -m pytest tests/test_integration.py -q -s
 bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_SCALE=1 integration python -m pytest tests/test_scale.py -q -s
 bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_E2E=1 browser python -m pytest tests/test_e2e.py -q
 ```
 
-集成测试需要 PostgreSQL 建库权限，在 UUID 命名的临时数据库上做迁移及故障恢复；Redis 测试使用独立子进程、端口和目录。规模测试生成 100 个小型 bare 仓库，每个 55 refs、三个提交，不能外推生产大历史性能。
+默认测试覆盖 SQLite 的真实后台子进程和迁移复制。旧 PostgreSQL/RQ 兼容套件 `tests/test_integration.py` 仅在另行提供有建库权限的测试 PostgreSQL URL、`GEV_JOB_BACKEND=redis` 和 `GEV_INTEGRATION=1` 时运行；不需要为日常开发启动这些服务。规模测试现在使用独立 SQLite，生成 100 个小型 bare 仓库（各 55 refs、三个提交），不能外推大历史性能。
 
 完整 E2E 包含 `test_compose_public_demo_screenshots`，依赖明确初始化的 local 示例（3 仓库 × 55 分支），且 `runtime/demo-access.json` 管理员资料须匹配。新空实例只跑隔离 fixture 用例时追加 `-k 'not compose_public_demo_screenshots'`，不会要求 seed 已有库。截图在 `runtime/screenshots/`，规模输出在 `runtime/verification/`。
 

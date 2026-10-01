@@ -10,7 +10,11 @@ __pycache__/
 .coverage
 htmlcov/
 *.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 *.db
+*.db-wal
+*.db-shm
 data/
 runtime/
 screenshots/

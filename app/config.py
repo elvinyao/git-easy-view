@@ -1,4 +1,6 @@
 import secrets
+from typing import Literal
+from sqlalchemy.engine import make_url
 
 from cryptography.fernet import Fernet
 from pydantic import Field, model_validator
@@ -13,6 +15,7 @@ class Settings(BaseSettings):
     session_secret: str | None = Field(default=None, repr=False)
     credential_key: str | None = Field(default=None, repr=False)
     redis_url: str = Field(default="redis://localhost:6379/0", repr=False)
+    job_backend: Literal["database", "redis"] = "database"
     cache_root: str = "./data/git"
     queue_name: str = "git-sync"
     job_timeout_seconds: int = 3600
@@ -24,8 +27,16 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_deployment(self):
         if self.production:
-            if not self.database_url or not self.database_url.startswith("postgresql"):
-                raise ValueError("Production requires an explicit PostgreSQL GEV_DATABASE_URL")
+            if not self.database_url:
+                raise ValueError("Production requires an explicit persistent GEV_DATABASE_URL")
+            url = make_url(self.database_url)
+            if url.get_backend_name() not in ("sqlite", "postgresql") or (
+                url.get_backend_name() == "sqlite" and (
+                    not url.database or not url.database.startswith("/")
+                    or url.database == ":memory:" or url.query.get("mode") == "memory"
+                )
+            ):
+                raise ValueError("Production requires PostgreSQL or an absolute SQLite file path")
             if not self.session_secret or len(self.session_secret) < 32:
                 raise ValueError("Production requires GEV_SESSION_SECRET of at least 32 characters")
             if not self.credential_key:

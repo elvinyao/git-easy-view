@@ -30,7 +30,8 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, help="host loopback port for a NEW configuration (local 8766, production 8767)")
     parser.add_argument("--project-name", help="Compose project name for a NEW configuration")
     parser.add_argument("--no-build", action="store_true", help="reuse the existing application image")
-    parser.add_argument("--pull", action="store_true", help="refresh infrastructure images and, when building, the Python base")
+    parser.add_argument("--migrate-sqlite", action="store_true", help="copy the existing bundled PostgreSQL database to SQLite; retain old volumes")
+    parser.add_argument("--pull", action="store_true", help="refresh the Python base image when building")
     parser.add_argument("--wait-timeout", type=positive_seconds, default=180, help="health wait per phase, in seconds (default 180)")
     return parser
 
@@ -73,8 +74,6 @@ def validate(values: dict[str, str], target: Path, args) -> None:
     except (KeyError, ValueError):
         raise ValueError("GEV_CREDENTIAL_KEY must be a valid Fernet key") from None
     password = values.get("POSTGRES_PASSWORD", "")
-    if not password or password.startswith("REPLACE_"):
-        raise ValueError("POSTGRES_PASSWORD must be configured")
     try:
         database = urlsplit(values.get("GEV_DATABASE_URL", ""))
         valid_database = (
@@ -87,10 +86,13 @@ def validate(values: dict[str, str], target: Path, args) -> None:
         )
     except ValueError:
         valid_database = False
-    if not valid_database:
-        raise ValueError("Quick deploy requires the bundled PostgreSQL URL and matching POSTGRES_PASSWORD; see the deployment guide")
-    if not values.get("GEV_REDIS_URL") or values.get("GEV_CACHE_ROOT") != "/data/git":
-        raise ValueError("Configure GEV_REDIS_URL and GEV_CACHE_ROOT=/data/git")
+    sqlite_database = values.get("GEV_DATABASE_URL") == "sqlite:////data/db/gev.sqlite3"
+    if not sqlite_database and not (args.migrate_sqlite and valid_database and password):
+        raise ValueError("Quick deploy requires sqlite:////data/db/gev.sqlite3; upgrade existing PostgreSQL with --migrate-sqlite")
+    if sqlite_database and values.get("GEV_JOB_BACKEND", "database") != "database":
+        raise ValueError("Single-container deployment requires GEV_JOB_BACKEND=database")
+    if values.get("GEV_CACHE_ROOT") != "/data/git":
+        raise ValueError("Configure GEV_CACHE_ROOT=/data/git")
     if values.get("GEV_ENV_FILE", "./runtime/local.env").removeprefix("./") != target.as_posix():
         raise ValueError("GEV_ENV_FILE must point to the same file passed with --env-file")
     project = values.get("COMPOSE_PROJECT_NAME", "git-easy-view")
@@ -133,15 +135,13 @@ def prepare(args) -> tuple[Path, bool]:
         default = Path("runtime/production.env" if args.production else "runtime/local.env")
         if target != default and not args.project_name:
             raise ValueError("Specify --project-name when creating a custom --env-file")
-        password = secrets.token_hex(32)
         values = {
             "COMPOSE_PROJECT_NAME": args.project_name or ("git-easy-view-production" if args.production else "git-easy-view"),
             "GEV_ENV_FILE": f"./{target.as_posix()}",
-            "POSTGRES_PASSWORD": password,
-            "GEV_DATABASE_URL": f"postgresql+psycopg://gev:{password}@postgres:5432/gev",
+            "GEV_DATABASE_URL": "sqlite:////data/db/gev.sqlite3",
             "GEV_SESSION_SECRET": secrets.token_urlsafe(48),
             "GEV_CREDENTIAL_KEY": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
-            "GEV_REDIS_URL": "redis://redis:6379/0",
+            "GEV_JOB_BACKEND": "database",
             "GEV_CACHE_ROOT": "/data/git",
             "GEV_PRODUCTION": str(args.production).lower(),
             "GEV_COOKIE_SECURE": str(args.production).lower(),

@@ -4,7 +4,7 @@
 
 ## 1. Stack and layout
 
-The stack is Python 3.13, FastAPI, SQLAlchemy / Alembic, Jinja2, CSS / JavaScript with vendored jQuery, PostgreSQL 17, Redis 7.4, and RQ. There is no Node frontend build.
+Python 3.13, FastAPI, SQLAlchemy / Alembic, Jinja2, CSS / JavaScript, and vendored jQuery. SQLite is the default database; Redis is unnecessary. There is no Node build.
 
 | Path | Purpose |
 |---|---|
@@ -12,7 +12,7 @@ The stack is Python 3.13, FastAPI, SQLAlchemy / Alembic, Jinja2, CSS / JavaScrip
 | `app/routes/` | Authentication, public reads, and administration HTTP routes |
 | `app/providers/` | GitHub / GitLab APIs and HTTPS / URL validation |
 | `app/git_service.py`, `git_workspace.py` | Local Git execution, history, and file details |
-| `app/sync.py`, `jobs.py`, `scheduler.py` | Snapshot publication, database outbox, RQ delivery, scheduling |
+| `app/sync.py`, `jobs.py`, `scheduler.py`, `worker.py`, `server.py` | Snapshots, database queue, scheduling, subprocesses, single-container startup |
 | `app/relations.py`, `project_overview.py` | Relationship evidence and batched project summaries |
 | `app/templates/`, `app/static/`, `app/locales/` | Pages, static assets, and three-language messages |
 | `alembic/versions/` | Database migrations |
@@ -68,7 +68,7 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools
 
 ## 4. Architecture and behavior to preserve
 
-The dispatcher finds due repositories → writes jobs / outbox to the database → delivers to Redis → an RQ worker obtains the repository lock → fetches Git / API data → analyzes fixed OIDs → publishes a snapshot. The database is the source of truth for jobs. The outbox restores missing deliveries after process or Redis failures.
+`app.server` migrates and starts HTTP plus `app.worker`. The worker schedules due repositories into SQLite and launches job subprocesses sequentially. Each job holds the repository lock, fetches Git/API data, and publishes fixed-OID snapshots. Interrupted jobs recover from the database without Redis. SQLite uses WAL and a 30-second lock wait; keep transactions short and never hold a write lock across network calls. Timed-out subprocesses are terminated, with at most five attempts.
 
 Git and API freshness are independent. Comparison caches use immutable OIDs and a rule version; do not mix moving refs during analysis. Keep inferred sources, manual claims, planned targets, current reachability, and historical PR/MR events distinct.
 
@@ -117,12 +117,11 @@ Run optional suites with **local** configuration after building the default appl
 
 ```bash
 bash .agent/run.sh compose --env-file runtime/local.env build integration browser
-bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_INTEGRATION=1 integration python -m pytest tests/test_integration.py -q -s
 bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_SCALE=1 integration python -m pytest tests/test_scale.py -q -s
 bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_E2E=1 browser python -m pytest tests/test_e2e.py -q
 ```
 
-Integration tests need PostgreSQL database creation rights and use UUID-named temporary databases. Redis tests use separate processes, ports, and directories. The scale fixture contains 100 small bare repositories, each with 55 refs and three commits; it does not establish production capacity for large histories.
+Default tests exercise real SQLite worker subprocesses and migration copies. The legacy PostgreSQL/RQ suite in `tests/test_integration.py` requires a separate test PostgreSQL URL with database creation privileges, `GEV_JOB_BACKEND=redis`, and `GEV_INTEGRATION=1`. Those services are unnecessary for routine development. Scale tests now use isolated SQLite with 100 small repositories (55 refs and three commits each); they do not establish capacity for large histories.
 
 The full E2E suite includes `test_compose_public_demo_screenshots`, which needs an explicitly initialized local demo (3 repositories × 55 branches) and matching administrator credentials in `runtime/demo-access.json`. On an empty instance, append `-k 'not compose_public_demo_screenshots'` to run isolated fixtures only; do not seed an existing database. Screenshots go to `runtime/screenshots/` and scale results to `runtime/verification/`.
 

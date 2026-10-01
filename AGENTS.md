@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`app/` contains the Python 3.13 FastAPI application: routes in `app/routes/`, GitHub/GitLab adapters in `app/providers/`, and Git analysis, synchronization, and RQ jobs in service modules. Jinja templates live in `app/templates/`; CSS, JavaScript, and vendored jQuery live in `app/static/`. Database migrations are in `alembic/versions/`, tests in `tests/`, and design/deployment notes in `docs/`.
+`app/` contains the Python 3.13 FastAPI application: routes in `app/routes/`, GitHub/GitLab adapters in `app/providers/`, and Git analysis, synchronization, and database-backed jobs in service modules. Jinja templates live in `app/templates/`; CSS, JavaScript, and vendored jQuery live in `app/static/`. Database migrations are in `alembic/versions/`, tests in `tests/`, and design/deployment notes in `docs/`.
 
 ## Docker Execution Policy
 
@@ -19,7 +19,7 @@ bash .agent/run.sh .venv/bin/pip install -e . --no-deps
 bash .agent/run.sh .venv/bin/python .agent/setup-local.py
 ```
 
-- `bash .agent/run.sh compose --env-file runtime/local.env up -d --build`: build and start PostgreSQL, Redis, migrations, web, workers, and dispatcher; browse `http://127.0.0.1:8766`.
+- `bash .agent/run.sh compose --env-file runtime/local.env up -d --build`: build and start one web container with SQLite, scheduling, and background jobs; browse `http://127.0.0.1:8766`.
 - `bash .agent/run.sh .venv/bin/pytest -q`: run the default test suite.
 
 Frontend assets require no Node build. Account/demo creation is explicit. See `docs/README.md` for Chinese, Japanese, and English guides; keep editions synchronized.

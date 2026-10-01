@@ -4,7 +4,7 @@
 
 ## 1. 技術スタックと構成
 
-Python 3.13、FastAPI、SQLAlchemy / Alembic、Jinja2、CSS / JavaScript、同梱 jQuery、PostgreSQL 17、Redis 7.4、RQ を使用します。フロントエンドの Node ビルドは不要です。
+Python 3.13、FastAPI、SQLAlchemy / Alembic、Jinja2、CSS / JavaScript、同梱 jQuery を使います。既定 DB は SQLite で Redis は不要です。Node ビルドはありません。
 
 | パス | 役割 |
 |---|---|
@@ -12,7 +12,7 @@ Python 3.13、FastAPI、SQLAlchemy / Alembic、Jinja2、CSS / JavaScript、同�
 | `app/routes/` | ログイン、公開閲覧、管理者操作の HTTP ルート |
 | `app/providers/` | GitHub / GitLab API、HTTPS・URL 検証 |
 | `app/git_service.py`, `git_workspace.py` | ローカル Git 実行、履歴、ファイル詳細 |
-| `app/sync.py`, `jobs.py`, `scheduler.py` | スナップショット公開、DB outbox、RQ、定期実行 |
+| `app/sync.py`, `jobs.py`, `scheduler.py`, `worker.py`, `server.py` | スナップショット、DB キュー、定期実行、子プロセス、単一コンテナ起動 |
 | `app/relations.py`, `project_overview.py` | 関係の証拠、プロジェクト概要の一括取得 |
 | `app/templates/`, `app/static/`, `app/locales/` | 画面、静的リソース、3 言語メッセージ |
 | `alembic/versions/` | DB マイグレーション |
@@ -68,7 +68,7 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools
 
 ## 4. アーキテクチャと維持する挙動
 
-dispatcher が同期対象を検出 → DB にジョブ / outbox を記録 → Redis キューへ投入 → RQ worker がリポジトリロックを取得 → Git / API 取得 → 固定 OID で解析 → スナップショット公開、という流れです。ジョブの事実は DB に保存します。キューへの投入漏れ、プロセス終了、Redis の再起動は outbox から復旧します。
+`app.server` がマイグレーション後に Web と `app.worker` を起動します。worker は同期対象を検出して SQLite にジョブを保存し、独立子プロセスを順次起動します。子プロセスはリポジトリロックを取得して Git/API を取得し、固定 OID のスナップショットを公開します。DB から中断ジョブを復旧するため Redis は不要です。SQLite は WAL と 30 秒の待機を使い、トランザクションは短く保ちます。時間超過時は子プロセスを終了し、最大 5 回試行します。書き込みロック中にネットワーク処理を行わないでください。
 
 Git と API の更新日時は独立です。比較キャッシュは不変 OID とルールのバージョンで識別し、動く ref を解析中に混在させません。派生元候補、手動宣言、予定ターゲット、現在の到達可能性、過去 PR/MR を別々に表示します。
 
@@ -117,12 +117,11 @@ bash .agent/run.sh python .agent/check-docs.py
 
 ```bash
 bash .agent/run.sh compose --env-file runtime/local.env build integration browser
-bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_INTEGRATION=1 integration python -m pytest tests/test_integration.py -q -s
 bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_SCALE=1 integration python -m pytest tests/test_scale.py -q -s
 bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_E2E=1 browser python -m pytest tests/test_e2e.py -q
 ```
 
-統合テストは UUID 名の一時 PostgreSQL DB を作成・削除するため、データベース作成権限が必要です。Redis は独立プロセス、ポート、ディレクトリを使用します。規模テストは 100 の小さな bare リポジトリ、各 55 refs・3 コミットであり、大規模本番履歴の性能は保証しません。
+既定テストは SQLite の実 worker 子プロセスと移行コピーを検証します。旧 PostgreSQL/RQ 互換テスト `tests/test_integration.py` には別途、DB 作成権限のあるテスト PostgreSQL URL、`GEV_JOB_BACKEND=redis`、`GEV_INTEGRATION=1` が必要です。日常開発で旧サービスを起動する必要はありません。規模テストは独立 SQLite で 100 リポジトリ（各 55 refs、3 コミット）を生成し、大きな履歴の性能保証にはなりません。
 
 完全 E2E の `test_compose_public_demo_screenshots` は、明示的に初期化した local サンプル（3 リポジトリ × 55 ブランチ）と一致する `runtime/demo-access.json` の管理者情報が必要です。空の環境で隔離 fixture だけを検証する場合は `-k 'not compose_public_demo_screenshots'` を追加します。既存 DB を seed する必要はありません。画像は `runtime/screenshots/`、規模結果は `runtime/verification/` に保存します。
 

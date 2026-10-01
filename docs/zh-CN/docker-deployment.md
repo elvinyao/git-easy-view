@@ -2,67 +2,38 @@
 
 [文档目录](../README.md) · [日本語](../ja/docker-deployment.md) · [English](../en/docker-deployment.md)
 
-## 1. 前提与部署组成
+## 1. 环境要求与单容器结构
 
-适用于运行 Docker 的单机 Linux 服务器或 Docker Desktop 开发机。源码已放到目标机并包含 `.agent/`；从仓库根目录执行全部命令。宿主不需要安装 Python、Node.js、pip 或 Compose 插件。
+安装并启动 Docker Desktop 或 Docker Engine；从仓库根目录执行命令。宿主只读源码或编辑文件，项目执行统一使用 `bash .agent/run.sh ...`。
 
-统一入口 `bash .agent/run.sh ...`：普通命令进入 `python:3.13-bookworm`；Compose 与部署调度进入 `docker:28-cli`。Docker daemon 需运行，runner 需要访问 `/var/run/docker.sock` 和当前目录。此 socket 具有主机管理权限，仅让可信运维及可信 CI 使用。
+默认只常驻 **一个 web 容器**：包含网页、定时调度和一个后台任务执行进程。SQLite 保存项目、账号、分支与任务；无需 PostgreSQL 或 Redis。任务串行执行，网页可同时读取已有快照。进程异常退出会触发整个容器重启，未完成任务从数据库恢复。
 
-| 服务 | 职责 | 持久化 |
-|---|---|---|
-| `postgres` | PostgreSQL 17，配置、快照、用户、审计、任务 / outbox | `postgres-data` |
-| `redis` | Redis 7.4，RQ 投递与重试调度 | `redis-data`，启用 AOF |
-| `migrate` | 一次性 `alembic upgrade head` | 使用同一数据库 |
-| `web` | FastAPI / Uvicorn，容器端口 8000 | 共用 Git cache |
-| `worker` | 两个 RQ worker，Git / API 同步与比较 | `git-cache` |
-| `dispatcher` | 定时检查到期仓库，恢复 outbox 投递 | 数据库与 Redis |
-| `tools` | 一次性管理 CLI，挂载源码 | 默认不常驻 |
-| `integration`, `browser` | 可选验证镜像 | 默认不启动 |
+两个持久卷分别保存 SQLite（`app-data:/data/db`）和 Git 缓存（`git-cache:/data/git`）。卷不是容器。部署时短暂运行的工具与迁移容器使用完即删除。旧服务仅在 `legacy` profile 下保留，用于迁移和兼容测试。
 
-仅 Web 发布到宿主 **127.0.0.1**；数据库与 Redis 没有宿主端口。`/health` 检查数据库；Redis 故障时缓存读取仍可用。worker / dispatcher 各自有健康检查，健康不表示每个远端仓库都已同步成功。
+SQLite 使用 WAL 和 30 秒锁等待；适合单机、十几个仓库的看板。不要将数据库放在网络文件系统，也不要横向扩展 web 副本。
 
 ## 2. 一条 shell 命令部署
 
-本机演示／开发：
+首次启动或更新源码使用第一条命令。第二条复用已有镜像，第三条同时更新 Python 构建基础镜像。
 
 ```bash
 bash .agent/run.sh deploy
-```
-
-首次生成 `runtime/local.env`，随机数据库密码、session secret、Fernet key，权限 0600。无需 `.venv`，不创建账号、不 seed 数据。部署成功后打开 [http://127.0.0.1:8766](http://127.0.0.1:8766)。
-
-重复运行会保留 env 原文、密钥、账号及数据卷。首次下载和安装依赖需要网络与时间；后续构建复用 Docker 缓存，不承诺固定秒数。
-
-```bash
-# 源码变更后：构建当前检出的版本并部署
-bash .agent/run.sh deploy
-
-# 源码／依赖没变，已存在正确镜像：省去构建
 bash .agent/run.sh deploy --no-build
-
-# 显式更新 PostgreSQL / Redis 镜像和构建时的 Python 基础镜像
 bash .agent/run.sh deploy --pull
-
 bash .agent/run.sh deploy --help
 ```
 
-`--no-build` 不会把新源码打进旧镜像。生产不能靠它更新未构建的修改。
+默认访问 [http://127.0.0.1:8766](http://127.0.0.1:8766)。脚本生成或保留 `runtime/local.env`（0600），构建镜像、停止写入进程、执行迁移、启动 web 并等待健康检查。失败返回非零；保留配置和持久卷。启动不创建账号或示例数据。
 
-| 参数 | 用途 |
-|---|---|
-| `--production` | 生产模式，默认 `runtime/production.env`、8767、Secure cookie |
-| `--env-file runtime/name.env` | 指定 runtime 下的相对 env 文件；自定义新文件需同时给项目名 |
-| `--project-name gev-staging` | 新配置的 Compose 项目名，隔离网络、容器、数据卷和生成的镜像标签 |
-| `--port 8770` | 新配置的本机绑定端口 |
-| `--no-build` | 复用已有应用镜像 |
-| `--pull` | 拉取基础／基础设施镜像；不自动更新 Python 锁定依赖 |
-| `--wait-timeout 300` | 每个健康等待阶段的上限秒数，默认 180；不限制构建总时间 |
+已有 PostgreSQL 实例首次升级：
 
-已有配置的 port / 项目名不会被参数改写；需要明确编辑 env。支持普通 `KEY=value`、整行注释及简单引号；不支持 env 内变量插值。快速脚本使用 Compose 内置的 `gev` PostgreSQL 数据库及 `/data/git`，自定义外部数据库需自行调整 Compose 与运维流程。
+```bash
+bash .agent/run.sh deploy --migrate-sqlite
+```
 
-部署顺序为：校验配置 → 可选拉取 → 构建 → 验证应用设置 → 等待 PostgreSQL / Redis → 停止 Web / worker / dispatcher → 用新镜像执行迁移 → 启动并等待全部应用服务 → 输出状态和端口。每次都会显式执行迁移，不依赖旧的成功 migration 容器。
+脚本停止旧写入者，逐表复制到 SQLite，比较所有字段并检查外键和完整性；成功后才改数据库地址，并停止 PostgreSQL、Redis 和旧 workers。账号、ID、token 密文、会话密钥和 Git 缓存保留。原 env 保存为 `runtime/local.env.postgres-backup`，原数据库卷不删除。目标 SQLite 已存在时拒绝覆盖。生产升级增加 `--production`。
 
-这是有短暂中断的单机部署。脚本不拉 Git、不自动备份、不自动回滚，不删除数据卷，也不覆盖现有 env。构建失败时尚未停止应用；迁移失败时应用保持停止，返回非零退出码。修复迁移或恢复已验证备份后再部署。CI 应串行执行同一环境的部署，避免重叠迁移。
+后续直接 `deploy`。不要手动把旧数据库 URL 改为 SQLite，否则会连接空数据库。中途失败时检查日志和已保留文件，不要删除原卷；复制成功后再回退旧库会丢失 SQLite 中的新修改。
 
 ## 3. 创建管理员与可选示例
 
@@ -156,85 +127,60 @@ token 以 Fernet 加密存入数据库。保管并备份 `GEV_CREDENTIAL_KEY`；
 
 ## 6. 关键配置
 
-`.env.example` 仅列字段和占位符，不可直接用于部署。首次通常让脚本生成文件；后续明确编辑，并保持所有进程使用相同值。
+`.env.example` 是字段参考。脚本生成稳定的密钥，重新部署不会轮换密钥。
 
-| 字段 | 含义 / 默认 |
+| 字段 | 默认 / 用途 |
 |---|---|
-| `COMPOSE_PROJECT_NAME` | 实例隔离标识；已部署后更改会指向另一组卷 |
-| `GEV_ENV_FILE` | Compose 服务实际加载的 env 路径，须与 `--env-file` 一致 |
-| `GEV_APP_IMAGE` | 应用镜像标签；旧 local 配置缺失时使用 `git-easy-view:local` |
-| `POSTGRES_PASSWORD`, `GEV_DATABASE_URL` | 必须匹配；数据库卷首次初始化后，改文件不会改数据库密码 |
-| `GEV_SESSION_SECRET` | 至少 32 字符的随机稳定值；更换会使现有会话失效 |
-| `GEV_CREDENTIAL_KEY` | 32 字节随机内容的 URL-safe Base64 Fernet key |
-| `GEV_REDIS_URL` | 默认 `redis://redis:6379/0` |
-| `GEV_CACHE_ROOT` | Compose 中 `/data/git`，Web / worker 共享 |
-| `GEV_PRODUCTION`, `GEV_COOKIE_SECURE` | 正式部署均为 `true` |
-| `GEV_PORT` | local 8766，production 8767，仅绑定 loopback |
-| `GEV_QUEUE_NAME` | RQ 队列名，默认 `git-sync` |
-| `GEV_JOB_TIMEOUT_SECONDS` | 后台任务超时，默认 3600 秒 |
-| `GEV_SCHEDULER_INTERVAL_SECONDS` | dispatcher 周期，默认 15 秒 |
-| `GEV_HEARTBEAT_INTERVAL_SECONDS` | 任务心跳，默认 15 秒 |
-| `GEV_SESSION_MAX_AGE` | 会话期限，默认 43200 秒 |
+| `GEV_DATABASE_URL` | `sqlite:////data/db/gev.sqlite3`，持久数据库文件 |
+| `GEV_JOB_BACKEND` | `database`，无需 Redis |
+| `GEV_CACHE_ROOT` | `/data/git` |
+| `GEV_SESSION_SECRET` | 至少 32 字符，保持稳定 |
+| `GEV_CREDENTIAL_KEY` | Fernet key，必须与数据库一起备份 |
+| `GEV_PRODUCTION`, `GEV_COOKIE_SECURE` | 生产均为 `true` |
+| `GEV_PORT` | local 8766，production 8767，仅 loopback |
+| `COMPOSE_PROJECT_NAME` | 不同实例使用不同名字以隔离卷 |
+| `GEV_ENV_FILE` | 与 `--env-file` 一致 |
+| `GEV_APP_IMAGE` | 实例应用镜像标签 |
+| `GEV_JOB_TIMEOUT_SECONDS` | 3600 秒 |
+| `GEV_SCHEDULER_INTERVAL_SECONDS` | 15 秒，查找到期仓库及恢复中断任务 |
+| `GEV_HEARTBEAT_INTERVAL_SECONDS` | 15 秒 |
+| `GEV_SESSION_MAX_AGE` | 43200 秒 |
 
-单仓库同步间隔默认 300 秒，在管理 UI 配置。生产设置会拒绝 SQLite、缺少密钥或明确关闭 Secure cookie。现有 PostgreSQL 卷轮换密码时需要先执行数据库密码变更，再协调 env 和服务重启。
+后台每秒检查排队任务，单仓库同步间隔默认 300 秒，由管理员修改。生产允许绝对路径的 SQLite 文件，仍强制稳定密钥与 Secure cookie。PostgreSQL/RQ 适配器保留兼容用途，不属于默认部署。
 
-## 7. 日常操作与诊断
+## 7. 日常操作与排错
 
-下面使用 production；本地实例替换 env 文件名。
+本地实例将文件名换为 `runtime/local.env`：
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env ps -a
-bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web worker dispatcher
-bash .agent/run.sh compose --env-file runtime/production.env exec -T web python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/health").read().decode())'
+bash .agent/run.sh compose --env-file runtime/production.env ps
+bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web
 bash .agent/run.sh compose --env-file runtime/production.env exec -T web alembic current
-
-# 停止但保留容器、数据卷
-bash .agent/run.sh compose --env-file runtime/production.env stop
-
-# 配置与镜像没变化时恢复服务；更新版本用 deploy
-bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300
+bash .agent/run.sh compose --env-file runtime/production.env stop web
+bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300 web
 ```
 
-`--wait` 等待服务 running / healthy，失败返回错误；见 [Compose up 官方参数](https://docs.docker.com/reference/cli/docker/compose/up/)。查看日志前注意其中的仓库、路径和用户信息，避免分享敏感内容；不要运行会打印所有密钥的完整 `compose config`，使用 `config --quiet`。
+`ps` 应只有一个运行中的 web。升级遗留的停止容器可在 `ps -a` 看到，不占运行资源。
 
-| 现象 | 检查 |
-|---|---|
-| Docker socket 无法连接 | 启动 Docker，检查部署账号权限；不要改用宿主 Python |
-| 端口占用 | 明确编辑 `GEV_PORT`，确认代理上游同步调整 |
-| Postgres authentication failed | 确认旧卷密码与 env 一致；不能通过重新随机生成文件修复 |
-| migrate 失败 | 检查迁移输出及 DB；应用保持停止，修复或恢复备份后重新 deploy |
-| 健康等待超时 | `ps -a` 和相关日志；资源慢时提高 `--wait-timeout`，但先排除真实错误 |
-| 能看页面但无新快照 | 检查 worker、dispatcher、Redis、连接暂停、token / CA 及同步状态 |
-| 登录循环 | 用 HTTPS，检查 cookie、代理与所有服务共用的 session secret |
-| token 解密失败 | 恢复数据库对应的 Fernet key；不要覆盖旧 key |
-
-强杀 worker 可能留下仍存活的 Git 子进程及锁。先终止对应进程或重启 worker 容器，确认无活动后再处理；不要在 Git 正在运行时删除缓存或锁。
+无法连接 Docker 时先启动 Docker；不能改用宿主 Python。同步没有进展时查看 web 日志、连接是否暂停及 token/CA 是否有效。数据库繁忙时检查是否有手工启动的额外写入者；不要删除 WAL、缓存或锁文件。迁移失败时保持应用停止，修复或恢复备份后重新部署。登录循环检查 HTTPS、cookie 和会话密钥；token 解密失败需恢复配套 Fernet key。
 
 ## 8. 备份、恢复与升级回退
 
-发布前至少备份 PostgreSQL 和对应 env（特别是 Fernet key），并受控保存 CA。Git cache 可重新抓取；保存它可缩短恢复时间。Redis 是投递层，数据库 outbox 保留任务事实。
-
-以下示例写入 `runtime/backups/pre-deploy/`；每次改为新的备份目录，避免覆盖唯一副本。所有写入和重定向都在容器中：
+备份工具使用 SQLite backup API，因此在线备份包含已提交的 WAL 数据，不直接复制活动数据库文件。每次使用新的目录名；已有目录会被拒绝。同时保存 env 中的密钥，并把备份放入受控加密存储。
 
 ```bash
-bash .agent/run.sh python -c 'import os,shutil; from pathlib import Path; os.umask(0o077); p=Path("runtime/backups/pre-deploy"); p.mkdir(parents=True,exist_ok=True); shutil.copyfile("runtime/production.env",p/"deployment.env"); os.chmod(p/"deployment.env",0o600)'
-bash .agent/run.sh compose --env-file runtime/production.env exec -T postgres sh -c 'umask 077; pg_dump -U gev -d gev -Fc -f /tmp/gev-backup.dump'
-bash .agent/run.sh compose --env-file runtime/production.env cp postgres:/tmp/gev-backup.dump /workspace/runtime/backups/pre-deploy/gev.dump
-bash .agent/run.sh python -c 'import os; os.chmod("runtime/backups/pre-deploy/gev.dump",0o600)'
+bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/pre-deploy --env-file runtime/production.env
 ```
 
-将备份与密钥放入公司加密备份系统，并在隔离实例定期演练恢复。恢复操作会覆盖目标数据库：确认目标实例、备份版本与配套 key 后，停止全部应用写入者：
+恢复会覆盖当前数据库。先确认实例和备份，再停止 web；不要有其他 tools/开发进程访问数据库。env 必须与备份一致，不一致时先由运维核对并恢复对应配置。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env stop web worker dispatcher
-bash .agent/run.sh compose --env-file runtime/production.env cp /workspace/runtime/backups/pre-deploy/gev.dump postgres:/tmp/gev-restore.dump
-bash .agent/run.sh compose --env-file runtime/production.env exec -T postgres pg_restore -U gev -d gev --clean --if-exists --exit-on-error /tmp/gev-restore.dump
-bash .agent/run.sh deploy --production --wait-timeout 300
+bash .agent/run.sh compose --env-file runtime/production.env stop web
+bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T tools python .agent/sqlite-backup.py restore runtime/backups/pre-deploy --env-file runtime/production.env
+bash .agent/run.sh deploy --production --no-build
 ```
 
-最后一步会升级到当前检出版本。若要回退到备份对应版本，先用受控发布包恢复该源码，再运行 deploy；旧代码不一定兼容新 schema，单独换旧镜像不能保证回退成功。恢复数据库对应 key 后才启动。
-
-普通停止不要使用 `down -v`，该参数删除持久卷。不要删除 `runtime/production.env` 后当作重新安装，它保存了恢复旧数据必须使用的密钥。
+Git 缓存可重建，也可在应用停止后单独保存卷以缩短恢复时间。回退程序版本前确认 schema 兼容，必要时同时恢复对应数据库和密钥。不要执行 `down -v`，它会删除数据卷。
 
 ## 9. 验收与容量边界
 

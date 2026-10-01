@@ -32,7 +32,7 @@ def postgres(tmp_path, monkeypatch):
     admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     with admin.connect() as connection:
         connection.execute(text(f'CREATE DATABASE "{database}"'))
-    settings = Settings(production=False, database_url=url.set(database=database).render_as_string(hide_password=False), cache_root=str(tmp_path / "cache"))
+    settings = Settings(production=False, job_backend="redis", database_url=url.set(database=database).render_as_string(hide_password=False), cache_root=str(tmp_path / "cache"))
     monkeypatch.setenv("GEV_DATABASE_URL", settings.database_url)
     monkeypatch.setenv("GEV_PRODUCTION", "false")
     monkeypatch.setenv("GEV_CACHE_ROOT", settings.cache_root)

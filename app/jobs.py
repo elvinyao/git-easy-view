@@ -1,4 +1,4 @@
-"""Database outbox with disposable Redis deliveries and shared-volume locks.
+"""Durable database jobs with optional Redis delivery and shared-volume locks.
 
 All workers and dispatchers MUST mount the same cache_root. File locks, rather
 than an expiring heartbeat, determine whether repository work is alive.
@@ -58,6 +58,17 @@ class RQDelivery:
                                result_ttl=3600, failure_ttl=86400)
         except DuplicateJobError:
             pass
+
+
+class DatabaseDelivery:
+    """The committed SyncJob row is the queue; no external delivery is needed."""
+
+    def ensure(self, job_id):
+        pass
+
+
+def delivery(settings):
+    return RQDelivery(settings) if settings.job_backend == "redis" else DatabaseDelivery()
 
 
 @contextmanager
@@ -122,7 +133,7 @@ def enqueue_sync(session, repository_id, requested_by=None, history_since=None, 
     A wider backfill arriving during execution receives its own generation.
     """
     settings = settings or Settings()
-    queue = queue if queue is not None else RQDelivery(settings)
+    queue = queue if queue is not None else delivery(settings)
     repo = locked_repository(session, repository_id)
     if session.get(PlatformConnection, repo.connection_id).auth_disabled:
         raise ValueError("Connection credentials require administrator attention")
@@ -150,7 +161,7 @@ def enqueue_comparison(session, repository_id, source_branch_id, target_branch_i
                        settings=None, queue=None):
     """Local-only work; authorization belongs to the requesting web route."""
     settings = settings or Settings()
-    queue = queue if queue is not None else RQDelivery(settings)
+    queue = queue if queue is not None else delivery(settings)
     repo = locked_repository(session, repository_id)
     branches = [session.get(Branch, bid) for bid in (source_branch_id, target_branch_id)]
     if any(b is None or b.repository_id != repository_id or b.deleted or not b.head_oid for b in branches):
@@ -170,7 +181,7 @@ def enqueue_comparison(session, repository_id, source_branch_id, target_branch_i
 
 def dispatch_pending(*, settings=None, queue=None):
     settings = settings or Settings()
-    queue = queue if queue is not None else RQDelivery(settings)
+    queue = queue if queue is not None else delivery(settings)
     engine = make_engine(settings.database_url)
     try:
         with Session(engine) as session:

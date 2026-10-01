@@ -10,17 +10,23 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import make_engine
+from app.config import Settings
 from app.demo import create_demo
 from app.git_service import GitService, clone_bare
 from app.models import Branch, Comparison, PlatformConnection, Repository, SyncJob
 from app.sync import _analyze, _refresh_cache, cache_path
-from test_integration import postgres
 
 pytestmark = pytest.mark.skipif(os.environ.get("GEV_SCALE") != "1", reason="100-repository fixture opt-in")
 
 
-def test_hundred_real_bare_repositories_and_cache_reuse(postgres, tmp_path, monkeypatch):
-    settings, _ = postgres
+def test_hundred_real_bare_repositories_and_cache_reuse(tmp_path, monkeypatch):
+    from alembic import command
+    from alembic.config import Config
+    settings = Settings(production=False, database_url=f"sqlite:///{tmp_path / 'scale.db'}",
+                        cache_root=str(tmp_path / "cache"))
+    monkeypatch.setenv("GEV_DATABASE_URL", settings.database_url)
+    monkeypatch.setenv("GEV_PRODUCTION", "false")
+    command.upgrade(Config("alembic.ini"), "head")
     calls = 0
     original = GitService.compare
     def observed(self, source, target):
@@ -58,7 +64,7 @@ def test_hundred_real_bare_repositories_and_cache_reuse(postgres, tmp_path, monk
                   cached_comparison_rows=comparison_count,
                   cache_bytes=sum(p.stat().st_size for p in Path(settings.cache_root).rglob("*") if p.is_file()),
                   python=platform.python_version(), architecture=platform.machine(),
-                  limitation="Tiny generated 3-commit histories, PostgreSQL + Docker local storage; not large-repository capacity evidence")
+                  limitation="Tiny generated 3-commit histories, SQLite + Docker local storage; not large-repository capacity evidence")
     directory = Path("runtime/verification")
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "scale.json").write_text(json.dumps(result, indent=2))

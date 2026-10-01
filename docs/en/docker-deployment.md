@@ -2,67 +2,38 @@
 
 [Documentation index](../README.md) · [简体中文](../zh-CN/docker-deployment.md) · [日本語](../ja/docker-deployment.md)
 
-## 1. Prerequisites and services
+## 1. Prerequisites and single-container layout
 
-Use a single Linux server with Docker or a development machine with Docker Desktop. Place the repository, including `.agent/`, on the target machine and run commands from its root. Host Python, Node.js, pip, and a Compose plugin are unnecessary.
+Start Docker Desktop or Docker Engine and run commands from the repository root. Inspect or edit source on the host; execute project commands through `bash .agent/run.sh ...`.
 
-The entry point is `bash .agent/run.sh ...`. Ordinary commands execute in `python:3.13-bookworm`; Compose and deployment orchestration execute in `docker:28-cli`. Docker must be running, and the runner needs `/var/run/docker.sock` and repository access. This socket grants host administration privileges; use trusted operators and trusted CI only.
+Only **one web container** stays running. It contains HTTP, scheduling, and one background job processor. SQLite stores projects, users, branches, and jobs; PostgreSQL and Redis are unnecessary. Jobs execute sequentially while cached pages remain readable. If a child process exits, the container restarts and unfinished jobs recover from the database.
 
-| Service | Responsibility | Persistence |
-|---|---|---|
-| `postgres` | PostgreSQL 17; settings, snapshots, users, audit, jobs / outbox | `postgres-data` |
-| `redis` | Redis 7.4; RQ delivery and retry scheduling | `redis-data`, AOF enabled |
-| `migrate` | One-off `alembic upgrade head` | Shared database |
-| `web` | FastAPI / Uvicorn, container port 8000 | Shared Git cache |
-| `worker` | Two RQ workers for Git / API synchronization and comparison | `git-cache` |
-| `dispatcher` | Due repository scheduling and outbox recovery | Database and Redis |
-| `tools` | One-off administration CLI with source mount | Not normally running |
-| `integration`, `browser` | Optional verification images | Not normally started |
+Two persistent volumes store SQLite (`app-data:/data/db`) and Git (`git-cache:/data/git`). Volumes are not containers. Temporary deployment tools and migration containers are removed after use. Old services remain under the `legacy` profile for migration and compatibility tests only.
 
-Only Web publishes a host port, bound to **127.0.0.1**. PostgreSQL and Redis publish no host ports. `/health` checks the database; cached reading remains available during a Redis outage. Workers and the dispatcher have separate health checks. Healthy services do not prove every remote repository synchronized successfully.
+SQLite uses WAL and a 30-second lock wait. This layout suits a single host monitoring a dozen repositories. Keep the database on local storage and do not scale web replicas.
 
 ## 2. Deploy with one shell command
 
-For local development or demonstration:
+Use the first command for initial deployment and source updates. The second reuses the existing image; the third also refreshes the Python base image.
 
 ```bash
 bash .agent/run.sh deploy
-```
-
-The first run creates `runtime/local.env` with a random database password, session secret, and Fernet key, using mode 0600. No `.venv` is needed. It creates no accounts or sample database records. After success, open [http://127.0.0.1:8766](http://127.0.0.1:8766).
-
-Repeat runs preserve the env file contents, keys, accounts, and volumes. Initial downloads and dependency installation need network access and time. Later builds reuse Docker's cache; there is no fixed deployment time guarantee.
-
-```bash
-# After source changes: build and deploy the current checkout
-bash .agent/run.sh deploy
-
-# Unchanged source/dependencies and an existing correct image: skip building
 bash .agent/run.sh deploy --no-build
-
-# Explicitly refresh PostgreSQL/Redis images and the Python build base
 bash .agent/run.sh deploy --pull
-
 bash .agent/run.sh deploy --help
 ```
 
-`--no-build` does not put new source into an old image. Do not use it to publish changes that have not been built.
+Open [http://127.0.0.1:8766](http://127.0.0.1:8766). The helper creates or preserves `runtime/local.env` (0600), builds, stops writers, migrates, starts web, and waits for health. Failures return nonzero and retain configuration and volumes. No accounts or demo data are created automatically.
 
-| Option | Purpose |
-|---|---|
-| `--production` | Production mode; defaults to `runtime/production.env`, port 8767, Secure cookies |
-| `--env-file runtime/name.env` | Relative env path under runtime; a new custom file also needs a project name |
-| `--project-name gev-staging` | Compose name for new configuration; separates networks, containers, volumes, and generated image tags |
-| `--port 8770` | Loopback port for new configuration |
-| `--no-build` | Reuse the existing application image |
-| `--pull` | Pull base / infrastructure images; does not update locked Python dependencies |
-| `--wait-timeout 300` | Maximum seconds per health-wait phase; default 180, not a build duration limit |
+For the first upgrade from an existing PostgreSQL deployment:
 
-Options do not rewrite an existing port or project name; edit the env deliberately. The helper accepts literal `KEY=value`, whole-line comments, and simple quoting, without variable interpolation. Quick deployment uses the bundled `gev` PostgreSQL database and `/data/git`. An external database requires separate Compose and operational changes.
+```bash
+bash .agent/run.sh deploy --migrate-sqlite
+```
 
-The sequence is configuration validation → optional image pull → build → application settings validation → PostgreSQL / Redis readiness → stop Web / workers / dispatcher → migrate using the new image → start and wait for all application services → show status and port. Migrations execute explicitly every time instead of relying on an old completed migrate container.
+The script stops old writers, copies every table, compares all fields, and checks foreign keys and integrity. Only then does it change the database URL and stop PostgreSQL, Redis, and old workers. Users, IDs, encrypted tokens, session keys, and Git caches are preserved. The original env is saved as `runtime/local.env.postgres-backup`; the old database volume is retained. An existing SQLite destination is never overwritten. Add `--production` for production upgrades.
 
-This is a single-host deployment with a brief interruption. It does not fetch Git, back up automatically, roll back automatically, delete volumes, or overwrite an existing env. Build failure occurs before application shutdown. Migration failure leaves application services stopped and returns a nonzero exit code; fix the migration or restore a verified backup before retrying. Serialize CI deployments for the same environment.
+Use ordinary `deploy` afterwards. Do not simply change the old database URL to SQLite: that selects an empty database. On interrupted transfer, inspect logs and retained files without deleting the old volume. Rolling back to PostgreSQL after migration does not include subsequent SQLite changes.
 
 ## 3. Create an administrator or an optional demo
 
@@ -156,85 +127,60 @@ Tokens are stored in the database with Fernet encryption. Preserve and back up `
 
 ## 6. Key configuration
 
-`.env.example` is a field reference containing placeholders, not usable credentials. Normally generate the file with the helper, then edit deliberately. Keep values consistent across processes.
+`.env.example` lists available fields. Redeployment preserves stable secrets.
 
-| Field | Meaning / default |
+| Field | Default / purpose |
 |---|---|
-| `COMPOSE_PROJECT_NAME` | Instance identity; changing it selects another set of volumes |
-| `GEV_ENV_FILE` | Env loaded by services; must match `--env-file` |
-| `GEV_APP_IMAGE` | Application tag; legacy local files fall back to `git-easy-view:local` |
-| `POSTGRES_PASSWORD`, `GEV_DATABASE_URL` | Must match; editing the file does not change an initialized database password |
-| `GEV_SESSION_SECRET` | Stable random value, at least 32 characters; rotation invalidates sessions |
-| `GEV_CREDENTIAL_KEY` | URL-safe Base64 encoding of 32 random bytes for Fernet |
-| `GEV_REDIS_URL` | `redis://redis:6379/0` |
-| `GEV_CACHE_ROOT` | `/data/git` in Compose, shared by Web and workers |
-| `GEV_PRODUCTION`, `GEV_COOKIE_SECURE` | Both `true` for production |
-| `GEV_PORT` | Local 8766, production 8767; loopback binding |
-| `GEV_QUEUE_NAME` | RQ queue, `git-sync` |
-| `GEV_JOB_TIMEOUT_SECONDS` | Job timeout, 3600 seconds |
-| `GEV_SCHEDULER_INTERVAL_SECONDS` | Dispatcher interval, 15 seconds |
-| `GEV_HEARTBEAT_INTERVAL_SECONDS` | Job heartbeat, 15 seconds |
-| `GEV_SESSION_MAX_AGE` | Session lifetime, 43200 seconds |
+| `GEV_DATABASE_URL` | `sqlite:////data/db/gev.sqlite3`, persistent DB file |
+| `GEV_JOB_BACKEND` | `database`; no Redis |
+| `GEV_CACHE_ROOT` | `/data/git` |
+| `GEV_SESSION_SECRET` | Stable random value of at least 32 characters |
+| `GEV_CREDENTIAL_KEY` | Fernet key; back up with the database |
+| `GEV_PRODUCTION`, `GEV_COOKIE_SECURE` | Both `true` in production |
+| `GEV_PORT` | Local 8766, production 8767; loopback only |
+| `COMPOSE_PROJECT_NAME` | Different names isolate instance volumes |
+| `GEV_ENV_FILE` | Must match `--env-file` |
+| `GEV_APP_IMAGE` | Application image tag for this instance |
+| `GEV_JOB_TIMEOUT_SECONDS` | 3600 seconds |
+| `GEV_SCHEDULER_INTERVAL_SECONDS` | 15 seconds; due repositories and interrupted jobs |
+| `GEV_HEARTBEAT_INTERVAL_SECONDS` | 15 seconds |
+| `GEV_SESSION_MAX_AGE` | 43200 seconds |
 
-The per-repository synchronization interval defaults to 300 seconds and is configured in the admin UI. Production validation rejects SQLite, missing keys, and explicitly disabled Secure cookies. For an initialized PostgreSQL volume, coordinate database password rotation with env changes and service restarts.
+The worker checks queued jobs every second. Repository synchronization defaults to 300 seconds, configurable by administrators. Production accepts absolute SQLite file paths and still requires stable keys and Secure cookies. PostgreSQL/RQ adapters remain for compatibility, outside the default deployment.
 
 ## 7. Daily operations and diagnosis
 
-These examples use production; substitute the local env file when appropriate.
+Substitute `runtime/local.env` for local operation:
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env ps -a
-bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web worker dispatcher
-bash .agent/run.sh compose --env-file runtime/production.env exec -T web python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/health").read().decode())'
+bash .agent/run.sh compose --env-file runtime/production.env ps
+bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web
 bash .agent/run.sh compose --env-file runtime/production.env exec -T web alembic current
-
-# Stop while retaining containers and volumes
-bash .agent/run.sh compose --env-file runtime/production.env stop
-
-# Resume unchanged configuration/images; use deploy for an update
-bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300
+bash .agent/run.sh compose --env-file runtime/production.env stop web
+bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300 web
 ```
 
-`--wait` waits for running / healthy services and reports failure. See [official Compose up options](https://docs.docker.com/reference/cli/docker/compose/up/). Logs can contain repository paths and user information. Avoid sharing sensitive data. Use `config --quiet` instead of printing the complete configuration and its secrets.
+`ps` should show one running web service. Stopped containers from the old deployment may appear in `ps -a`; they consume no running resources.
 
-| Symptom | Check |
-|---|---|
-| Docker socket unavailable | Start Docker and check account permissions; do not fall back to host Python |
-| Port occupied | Edit `GEV_PORT` deliberately and update the proxy upstream |
-| PostgreSQL authentication failure | Match env credentials with the existing volume; regenerating env does not repair them |
-| Migration fails | Inspect migration output and DB; leave apps stopped until repaired or restored |
-| Health timeout | Inspect `ps -a` and logs; increase the timeout only after checking actual faults |
-| Pages work but snapshots do not update | Workers, dispatcher, Redis, paused connections, tokens / CA, sync status |
-| Login loop | HTTPS, cookie, proxy, shared session secret |
-| Token decryption failure | Restore the matching Fernet key; do not overwrite the old key |
-
-Force-killing a worker can leave a live Git child holding a lock. Terminate the relevant process or restart that worker container first. Do not delete caches or locks while Git is active.
+If Docker is unavailable, start it; do not fall back to host Python. For stalled synchronization, inspect web logs, paused connections, and token/CA validity. Database busy errors may indicate extra manually started writers. Never delete active WAL, cache, or lock files. Keep the application stopped after migration failure until repaired or restored. Login loops require checking HTTPS, cookies, and session keys; token decryption requires the matching Fernet key.
 
 ## 8. Backup, restore, and reverting an upgrade
 
-Before deployment, back up PostgreSQL and its matching env, especially the Fernet key, and retain controlled CA copies. Git cache can be fetched again; retaining it speeds recovery. Redis is the delivery layer, while the database outbox retains job facts.
-
-This example uses `runtime/backups/pre-deploy/`. Choose a fresh directory each time rather than overwriting the only backup. All file writing and redirection happen inside containers:
+The helper uses SQLite's backup API, including committed WAL data during online backups. Do not simply copy a live database file. Choose a new directory for each backup; existing directories are rejected. Matching env secrets are saved too. Transfer both to controlled encrypted storage.
 
 ```bash
-bash .agent/run.sh python -c 'import os,shutil; from pathlib import Path; os.umask(0o077); p=Path("runtime/backups/pre-deploy"); p.mkdir(parents=True,exist_ok=True); shutil.copyfile("runtime/production.env",p/"deployment.env"); os.chmod(p/"deployment.env",0o600)'
-bash .agent/run.sh compose --env-file runtime/production.env exec -T postgres sh -c 'umask 077; pg_dump -U gev -d gev -Fc -f /tmp/gev-backup.dump'
-bash .agent/run.sh compose --env-file runtime/production.env cp postgres:/tmp/gev-backup.dump /workspace/runtime/backups/pre-deploy/gev.dump
-bash .agent/run.sh python -c 'import os; os.chmod("runtime/backups/pre-deploy/gev.dump",0o600)'
+bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/pre-deploy --env-file runtime/production.env
 ```
 
-Move backups into your company's encrypted backup system and rehearse recovery in an isolated instance. Restore overwrites the target database. Confirm the instance, backup version, and matching key before stopping application writers:
+Restore overwrites the current database. Verify the target and backup, stop web, and ensure no tools or development processes access the database. The environment must match the backup; verify and restore matching configuration explicitly if it differs.
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env stop web worker dispatcher
-bash .agent/run.sh compose --env-file runtime/production.env cp /workspace/runtime/backups/pre-deploy/gev.dump postgres:/tmp/gev-restore.dump
-bash .agent/run.sh compose --env-file runtime/production.env exec -T postgres pg_restore -U gev -d gev --clean --if-exists --exit-on-error /tmp/gev-restore.dump
-bash .agent/run.sh deploy --production --wait-timeout 300
+bash .agent/run.sh compose --env-file runtime/production.env stop web
+bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T tools python .agent/sqlite-backup.py restore runtime/backups/pre-deploy --env-file runtime/production.env
+bash .agent/run.sh deploy --production --no-build
 ```
 
-The final command upgrades to the current checkout. To revert to the backup's version, first restore that source from a controlled release. Older code may be incompatible with a newer schema; merely changing to an old image does not guarantee a safe rollback. Restore the database's matching key before starting.
-
-Do not use `down -v` for ordinary stops; it deletes persistent volumes. Do not remove `runtime/production.env` as a reinstallation step: it contains keys needed to recover existing data.
+Git caches can be fetched again, or separately archived while stopped to speed recovery. Verify schema compatibility before reverting application code; restore the matching database and keys when needed. Avoid `down -v`: it deletes persistent data.
 
 ## 9. Acceptance checks and capacity limits
 

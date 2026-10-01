@@ -1,4 +1,4 @@
-"""Run with python -m app.scheduler alongside RQ workers."""
+"""Scheduling shared by the bundled database worker and legacy RQ deployments."""
 import signal
 import threading
 from datetime import timedelta
@@ -8,13 +8,13 @@ from sqlalchemy.orm import Session
 
 from .config import Settings
 from .db import make_engine
-from .jobs import dispatch_pending, enqueue_sync, locked_repository, RQDelivery
+from .jobs import dispatch_pending, enqueue_sync, locked_repository, delivery
 from .models import PlatformConnection, Repository, utc_now
 
 
 def tick(*, settings=None, queue=None):
     settings = settings or Settings()
-    queue = queue if queue is not None else RQDelivery(settings)
+    queue = queue if queue is not None else delivery(settings)
     dispatch_pending(settings=settings, queue=queue)
     engine = make_engine(settings.database_url)
     try:
