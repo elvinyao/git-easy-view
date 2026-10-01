@@ -139,6 +139,9 @@ import json, os, sys
 args = sys.argv[1:]
 with open(os.environ['DEPLOY_CALLS'], 'a') as file:
     file.write(json.dumps(args) + '\\n')
+if args == ['compose', 'version', '--short']:
+    print('2.35.1')
+    sys.exit(0)
 if args[0] == 'compose':
     command = args[7:]
     if os.environ.get('DEPLOY_FAIL') == 'build' and command[0] == 'build':
@@ -163,8 +166,9 @@ if args[0] == 'compose':
         }
         result = subprocess.run(["sh", str(ROOT / ".agent/deploy.sh"), *arguments], env=environment, capture_output=True, text=True)
         raw = [json.loads(line) for line in calls.read_text().splitlines()]
-        commands = [row[7:] for row in raw if row[0] == "compose"]
-        assert all(row[1:6] == ["--project-directory", "/example/project with spaces", "-f", "/example/project with spaces/compose.yaml", "--env-file"] for row in raw if row[0] == "compose")
+        rows = [row for row in raw if row[:2] == ["compose", "--project-directory"]]
+        commands = [row[7:] for row in rows]
+        assert all(row[1:6] == ["--project-directory", "/example/project with spaces", "-f", "/example/project with spaces/compose.yaml", "--env-file"] for row in rows)
         return result, commands
 
     return run

@@ -33,7 +33,7 @@ def test_anonymous_dashboard_is_public_and_admin_requires_login(client):
     assert "匿名访问" in response.text
     response = client.get("/admin", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "/login?next=%2Fadmin"
 
 
 def test_login_uses_real_password_hash_and_sets_session(client, user):

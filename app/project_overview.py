@@ -81,6 +81,11 @@ def repository_overview(settings, repo, views, matches):
     releases = [view for view in matches if view.role == "release" and not view.is_default]
     releases.sort(key=lambda view: not bool(view.branch.config and view.branch.config.active_release))
     features = [view for view in matches if view.role == "feature" and not view.is_default]
+    all_releases = [view for view in views if view.role == "release" and not view.is_default]
+    all_releases.sort(key=lambda view: not bool(view.branch.config and view.branch.config.active_release))
+    all_features = [view for view in views if view.role == "feature" and not view.is_default]
+    summary_release = next(iter(all_releases), None)
+    summary_feature = next(iter(all_features), None)
     additional_main = [view for view in matches if view.role == "main" and not view.is_default]
     others = [view for view in matches if view.role == "other" and not view.is_default]
     groups = [SimpleNamespace(role=role, label=label, views=items) for role, label, items in (
@@ -92,11 +97,13 @@ def repository_overview(settings, repo, views, matches):
                  for state in ("identical", "contained", "diverged", "unrelated", "missing")}
     overview = SimpleNamespace(
         main=main, releases=releases, features=features, others=others, groups=groups,
-        release_count=len(releases), feature_count=len(features), branch_count=len(views),
+        release_count=len(all_releases), feature_count=len(all_features), branch_count=len(views),
+        summary_release=summary_release, summary_feature=summary_feature,
         filtered_count=len(matches), displayed_count=len(displayed), relations=relations,
         is_empty=not views,
     )
-    oids = tuple(sorted({view.branch.head_oid for view in displayed if view.branch.head_oid}))
+    with_summaries = displayed + [view for view in (summary_release, summary_feature) if view is not None]
+    oids = tuple(sorted({view.branch.head_oid for view in with_summaries if view.branch.head_oid}))
     if not oids:
         return overview
     subjects, error = {}, None
@@ -108,7 +115,7 @@ def repository_overview(settings, repo, views, matches):
                 error = "正在同步，提交摘要稍后可用"
     except (GitError, OSError, ValueError):
         error = "本地提交摘要暂不可读取"
-    for view in displayed:
+    for view in with_summaries:
         view.subject = subjects.get(view.branch.head_oid)
         view.subject_error = error
     return overview

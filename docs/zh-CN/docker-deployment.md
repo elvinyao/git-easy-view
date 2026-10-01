@@ -2,11 +2,21 @@
 
 [文档目录](../README.md) · [日本語](../ja/docker-deployment.md) · [English](../en/docker-deployment.md)
 
-需要 HTTP/HTTPS 出站代理下载依赖、访问 Git，以及映射公司 CA 的内网，使用独立的 [deploy/ 内网部署指南](../../deploy/README.md)：入口为 `bash .agent/run.sh deploy-intranet`，包含独立 Dockerfile、初始化配置、CA 信任和运维命令。本页的 `deploy` 继续适用于个人电脑直连环境。
+需要独立部署时，使用 [deploy/ 部署指南](../../deploy/README.md)：入口为 `bash deploy/deploy.sh`，初始化加 `--init`，运维使用 `bash deploy/deploy.sh compose ...`。支持 HTTP/HTTPS 代理、公司 CA 和个人电脑直连，无需经过 `.agent/run.sh`。本页保留开发 runner 的部署、数据库迁移及运维说明。
 
 ## 1. 环境要求与单容器结构
 
-安装并启动 Docker Desktop 或 Docker Engine；从仓库根目录执行命令。宿主只读源码或编辑文件，项目执行统一使用 `bash .agent/run.sh ...`。
+安装并启动 Docker Engine 20.10+（或对应的 Docker Desktop），启用 BuildKit；从仓库根目录执行命令。宿主只读源码或编辑文件，项目执行统一使用 `bash .agent/run.sh ...`。
+
+部署支持 `docker compose` 和旧版 `docker-compose`（最低 1.29.2）。默认在 `docker:28-cli` 工具容器内运行 Compose，无需安装或升级宿主 Compose。脚本优先使用插件，缺少插件时使用 `docker-compose`；旧版自动使用兼容配置和健康状态轮询。需要公司工具镜像时，用 `GEV_DOCKER_CLI_IMAGE` 指定包含 `docker`、`sh`、`awk`、`date` 和上述 Compose 的镜像，后续命令沿用相同设置：
+
+```bash
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash .agent/run.sh deploy
+```
+
+独立入口 `bash deploy/deploy.sh` 也支持这一设置，详见[内网部署指南](../../deploy/README.md)。个人电脑可保持默认镜像。
+
+使用 v1 更新时，请执行 `bash .agent/run.sh deploy`：脚本在数据库迁移成功后替换 web 容器，保留 SQLite 和 Git 缓存的命名卷。直接调用旧版 `docker-compose up` 在新 Docker Engine 上可能因已废弃的 `ContainerConfig` 字段而失败。
 
 默认只常驻 **一个 web 容器**：包含网页、定时调度和一个后台任务执行进程。SQLite 保存项目、账号、分支与任务；无需 PostgreSQL 或 Redis。任务串行执行，网页可同时读取已有快照。进程异常退出会触发整个容器重启，未完成任务从数据库恢复。
 
@@ -47,7 +57,7 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools
 
 使用长随机密码，Web 账号管理表单要求 12–1024 字符。生产命令把 env 文件换成 `runtime/production.env`。管理员创建只做一次；已有同名账号会返回错误，不重设密码。后续部署无需重复建用户。
 
-无人值守首次建用户，可让 secret 管理器写入受控的 `runtime/admin-bootstrap.env`（0600，内容为 `GEV_ADMIN_PASSWORD=...`），再使用一次性容器：
+无人值守首次建用户，可让 secret 管理器写入受控的 `runtime/admin-bootstrap.env`（0600，内容为 `GEV_ADMIN_PASSWORD=...`），再使用一次性容器。以下 `--env-from-file` 示例使用默认现代 CLI 镜像；自定义旧版 Compose 镜像请使用上面的交互输入方式：
 
 ```bash
 bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T --env-from-file /workspace/runtime/admin-bootstrap.env tools python -m app.cli create-user --username your-admin --admin --password-env GEV_ADMIN_PASSWORD
@@ -159,7 +169,7 @@ bash .agent/run.sh compose --env-file runtime/production.env ps
 bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web
 bash .agent/run.sh compose --env-file runtime/production.env exec -T web alembic current
 bash .agent/run.sh compose --env-file runtime/production.env stop web
-bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300 web
+bash .agent/run.sh deploy --production --no-build --wait-timeout 300
 ```
 
 `ps` 应只有一个运行中的 web。升级遗留的停止容器可在 `ps -a` 看到，不占运行资源。

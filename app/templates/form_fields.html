@@ -1,0 +1,5 @@
+{% macro attrs(name) -%}
+id="field-{{ name }}" {% if form_errors.get(name) %}aria-invalid="true" aria-describedby="error-{{ name }}"{% endif %}
+{%- endmacro %}
+{% macro value(name, original='') -%}{{ form_values.get(name, original) }}{%- endmacro %}
+{% macro checked(name, original=false) -%}{% if ((name in form_values) if form_submitted else original) %}checked{% endif %}{%- endmacro %}

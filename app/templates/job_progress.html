@@ -1,0 +1,41 @@
+{% if job_progress %}
+  <section class="panel job-progress" data-job-progress
+           aria-labelledby="job-progress-heading"
+           data-unavailable="{{ t('任务状态暂不可用，请重试。同步仍会在后台继续。') }}"
+           data-still-running="{{ t('同步仍在后台进行。已暂停自动检查，请刷新状态。') }}"
+           data-refreshing="{{ t('同步结果已更新，正在刷新快照…') }}"
+           data-retry-label="{{ t('重试') }}"
+           data-refresh-label="{{ t('刷新状态') }}"
+           data-queue-pending="{{ t('请求已保存，等待队列恢复。') }}">
+    <h2 id="job-progress-heading">{{ t('本次同步进度') }}</h2>
+    <p data-job-summary role="status" aria-live="polite">{{ t(job_progress.messages[job_progress.state]) }}</p>
+    <p class="help">{{ t('同步期间继续显示上次快照。') }}</p>
+    <ul class="admin-list job-progress-list">
+      {% for job in job_progress.jobs %}
+        <li data-progress-job="{{ job.job_id }}" data-state="{{ job.status }}">
+          <div>
+            <a href="/repositories/{{ job.repository_id }}">{{ job.repository_name }}</a>
+            <strong data-job-state>{{ t(job_progress.labels[job.status]) }}</strong>
+            <p class="help" data-job-message>{{ t('请求已保存，等待队列恢复。') if job.queue_pending else t(job_progress.messages[job.status]) }}</p>
+          </div>
+          {% if user and user.is_admin %}
+            <div class="job-progress-recovery">
+              <a href="{{ job.repository_admin_url }}">{{ t('仓库同步设置') }}</a>
+              <a data-connection-recovery href="{{ job.connection_admin_url }}" {% if job.status != 'auth_failed' %}hidden{% endif %}>{{ t('恢复平台连接') }}</a>
+            </div>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    <button type="button" data-job-retry hidden>{{ t('刷新状态') }}</button>
+    <noscript><a class="button" href="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">{{ t('刷新状态') }}</a></noscript>
+    <script type="application/json" data-job-initial>{{ job_progress|tojson }}</script>
+    <script type="application/json" data-job-labels>{
+      {% for key, value in job_progress.labels.items() %}{{ key|tojson }}: {{ t(value)|tojson }}{% if not loop.last %},{% endif %}{% endfor %}
+    }</script>
+    <script type="application/json" data-job-messages>{
+      {% for key, value in job_progress.messages.items() %}{{ key|tojson }}: {{ t(value)|tojson }}{% if not loop.last %},{% endif %}{% endfor %}
+    }</script>
+  </section>
+  <script defer src="/static/job-progress.js"></script>
+{% endif %}

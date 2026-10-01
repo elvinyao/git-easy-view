@@ -14,7 +14,7 @@
 
 完整三语文档入口：[docs/README.md](docs/README.md)。以下为中文功能与操作摘要。
 
-需要 HTTP/HTTPS 出站代理和公司 CA 的内网，请使用独立的 [deploy/ 部署指南](deploy/README.md)（[日本語](deploy/README.ja.md) / [English](deploy/README.en.md)）：先运行 `bash .agent/run.sh deploy-intranet --init`，编辑网络配置并放入 CA，再运行 `bash .agent/run.sh deploy-intranet`。原个人电脑部署入口保持兼容。
+内网与个人电脑都可使用独立的 [deploy/ 部署指南](deploy/README.md)（[日本語](deploy/README.ja.md) / [English](deploy/README.en.md)）：先运行 `bash deploy/deploy.sh --init`，配置所需代理与公司 CA，再运行 `bash deploy/deploy.sh`。直连环境将代理与 CA 目录留空；查看状态使用 `bash deploy/deploy.sh compose --env-file runtime/local.env ps`。此入口不经过 `.agent/run.sh`，后者用于下文的开发工作流。
 
 ## 一条命令快速部署
 

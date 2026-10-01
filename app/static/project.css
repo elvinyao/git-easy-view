@@ -1,0 +1,137 @@
+/* A scanable project summary, complete branch rows, and an in-place inspector. */
+.project-overview-page { --summary-muted: #536575; }
+.project-overview-page .main { max-width: 2000px; }
+.project-overview-page .eyebrow, .overview-description, .overview-section-heading .muted,
+.overview-heading-actions a, .overview-repo-meta, .overview-open,
+.overview-cell h3 small, .overview-relationship > small, .overview-legend,
+.overview-baseline-note, .overview-sync, .overview-role-counts { font-size: 12px; }
+.project-overview-page .muted { color: var(--summary-muted); }
+.project-filters { align-items: end; gap: 10px; }
+.project-filters label { font-size: 12px; }
+.project-filters input, .project-filters select, .project-filters button { font-size: 13px; }
+.project-filters .attention-filter { display: flex; flex-direction: row; align-items: center; gap: 6px; padding-bottom: 9px; }
+.attention-filter input { width: auto; margin: 0; }
+.repository-summary { margin: 20px 0; }
+.repository-summary .section-heading { align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.repository-summary h2 { margin: 0; font-size: 18px; }
+.repository-summary .section-heading span { font-size: 12px; }
+.summary-table-wrap { border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.summary-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.summary-table th, .summary-table td { padding: 12px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); }
+.summary-table thead th { position: sticky; top: 0; z-index: 2; background: #edf2f7; color: #354b60; font-weight: 600; }
+.summary-table thead th { font-size: 12px; }
+.summary-table th:first-child { width: 18%; }
+.summary-table th:last-child { width: 17%; }
+.summary-table tbody th { font-weight: 400; }
+.summary-table tbody tr:last-child > * { border-bottom: 0; }
+.summary-table tbody tr:hover { background: #f8faff; }
+.summary-repository { display: block; font-size: 14px; font-weight: 650; color: #244b70; }
+.summary-namespace { display: block; color: var(--summary-muted); font-size: 12px; margin-top: 3px; }
+.summary-branch-name { display: block; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; font-weight: 600; color: #275e8b; }
+.summary-subject { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: #35495c; font-size: 13px; line-height: 1.5; margin: 4px 0; }
+.summary-tip-meta { display: flex; flex-wrap: wrap; gap: 3px 10px; font-size: 12px; color: var(--summary-muted); }
+.summary-tip-meta a { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: #275e8b; }
+.summary-count { display: inline-block; margin-top: 5px; font-size: 12px; color: #355f82; }
+.summary-health { display: block; font-size: 13px; margin-bottom: 4px; }
+.summary-health.healthy { color: #256651; }
+.summary-health.attention { color: #945217; }
+.summary-sync-time { display: block; font-size: 12px; color: var(--summary-muted); }
+.overview-repo-nav { position: sticky; top: 34px; z-index: 3; padding: 10px 0; background: #f4f7fa; max-height: 118px; overflow: auto; }
+.overview-repo-nav a, .overview-repo-nav small { font-size: 12px; }
+.overview-list .repository-row, .overview-cell { scroll-margin-top: 160px; }
+.overview-repo-name a { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+.repository-branches > summary { cursor: pointer; padding: 12px 15px; font-size: 14px; font-weight: 600; background: #fafcfe; }
+.repository-branches > summary span { margin-left: 12px; font-size: 12px; font-weight: 400; color: var(--summary-muted); }
+.overview-map, .overview-compact .overview-map { display: block; }
+.overview-main, .overview-compact .overview-main { display: block; padding: 14px; border-right: 0; border-bottom: 1px solid var(--line); }
+.overview-default-label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 16px; }
+.overview-baseline-note { max-width: none; margin: 0 0 8px; }
+.overview-role-counts { display: none; }
+.overview-main .overview-detail-toggle { display: inline-block; margin-top: 8px; font-size: 12px; }
+.overview-branch-scroll, .overview-compact .overview-branch-scroll { max-height: none; overflow: visible; padding: 14px; }
+.overview-branch-grid { display: block; }
+.overview-branch { display: grid; grid-template-columns: minmax(160px, 1.2fr) minmax(160px, 1.5fr) minmax(190px, 1fr); gap: 14px; align-items: center; padding: 12px; border: 0; border-bottom: 1px solid #e2e8ef; border-radius: 0; }
+.overview-branch:nth-child(even) { background: #f8fafc; }
+.overview-branch:hover { background: #f0f5fa; }
+.overview-branch-heading { display: block; }
+.overview-branch-name { display: block; font-size: 13px; white-space: normal; overflow-wrap: anywhere; }
+.overview-branch-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.overview-state { margin: 0; font-size: 12px; line-height: 1.6; white-space: normal; }
+.overview-state.diverged { color: #635071; background: #f0ebf5; }
+.overview-state.unrelated { color: #765621; background: #f7f0df; }
+.overview-active { display: inline-block; width: auto; height: auto; border-radius: 3px; background: #e5f3ee; color: #216653; padding: 0 5px; font-size: 12px; line-height: 1.6; }
+.overview-subject { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin: 0; color: #35495c; font-size: 13px; line-height: 1.6; white-space: normal; overflow: hidden; overflow-wrap: anywhere; }
+.overview-commit-meta { display: block; font-size: 12px; color: var(--summary-muted); }
+.overview-tip-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.overview-hash { font-size: 12px; margin: 0; }
+.overview-delta { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 0; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+.overview-cell h3 { font-size: 14px; }
+.overview-relationship { flex-wrap: wrap; }
+.overview-relationship-line { min-width: 20px; }
+.overview-baseline-name { font-size: 12px; overflow-wrap: anywhere; white-space: normal; }
+.project-overview-page :focus-visible { outline: 2px solid #2363a0; outline-offset: 3px; }
+#project-inspector { position: fixed; inset: 0 0 0 auto; width: min(560px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0 0 0 auto; padding: 0; border: 0; border-left: 1px solid #c9d5e0; background: #fff; color: #25394c; box-shadow: -12px 0 45px #10223433; overflow-y: auto; }
+#project-inspector::backdrop { background: #162b3b55; }
+.inspector-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 16px 20px; background: #f4f7fa; border-bottom: 1px solid #dce4ec; }
+.inspector-header h2 { flex: 1; margin: 0; font-size: 16px; }
+.inspector-close { background: transparent; color: #334a60; border: 1px solid #bbcbd9; font-size: 23px; line-height: 1; padding: 7px 10px; }
+.inspector-feedback { padding: 12px 20px 0; font-size: 13px; color: #4b6071; }
+.inspector-feedback:empty { padding: 0; }
+.inspector-feedback button { margin-left: 10px; }
+.project-inspector-content { padding: 20px; --git-blue: #256397; --git-border: #dce4ec; }
+.project-inspector-title { overflow-wrap: anywhere; margin: 8px 0; font-size: 21px; }
+.project-inspector-content .wrap-ref, .project-inspector-content code { overflow-wrap: anywhere; white-space: normal; }
+.project-inspector-content p { font-size: 13px; line-height: 1.7; }
+.project-inspector-content .eyebrow { font-size: 12px; }
+.project-inspector-content .git-evidence-section { border-top: 1px solid #dce4ec; padding: 16px 0; }
+.project-inspector-content h3 { font-size: 14px; color: #354c61; }
+.project-inspector-content .git-commit-metadata { font-size: 13px; grid-template-columns: 60px minmax(0, 1fr); }
+.project-inspector-content .git-commit-metadata dd { color: #354c61; }
+.project-inspector-content .git-evidence-note, .project-inspector-content .git-file-note,
+.project-inspector-content .git-evidence-reference span { font-size: 12px; color: #536575; }
+.project-inspector-content .git-target-name, .project-inspector-content .git-comparison-counts strong,
+.project-inspector-content .git-evidence-reference code { color: #304e68; }
+.project-inspector-content .git-file-list { max-height: none; padding: 0; }
+.project-inspector-content .git-file-list li { font-size: 12px; color: #354c61; }
+.project-inspector-content .git-file-list li span { white-space: normal; overflow-wrap: anywhere; }
+.project-inspector-content .git-icon-button { color: #315b80; background: #edf3f8; }
+.project-inspector-content .git-pr-link { color: #275f8a; font-size: 13px; }
+.project-inspector-content .git-pr-link span:first-child { color: #275f8a; }
+.project-inspector-content .git-pr-link span, .project-inspector-content .git-file-status { font-size: 12px; }
+.project-inspector-content .git-file-status.status-A { color: #23634c; }
+.project-inspector-content .git-file-status.status-D { color: #9b3439; }
+.project-inspector-content .git-file-status.status-M { color: #275f8a; }
+.project-inspector-content .git-ref-label { color: #215b4c; background: #e6f1ed; font-size: 12px; }
+.project-inspector-content .git-state-label { color: #635071; background: #f0ebf5; font-size: 12px; }
+.project-inspector-actions { display: flex; flex-wrap: wrap; gap: 12px; border-top: 1px solid #dce4ec; }
+.project-inspector-actions .git-detail-link { font-size: 13px; }
+@media (max-width: 1100px) {
+  .summary-table th, .summary-table td { padding: 10px 8px; }
+  .overview-branch { grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr); }
+  .overview-commit-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 20px; }
+  .overview-delta { margin: 0; }
+}
+@media (max-width: 800px) {
+  .summary-table, .summary-table tbody, .summary-table tr { display: block; }
+  .summary-table thead { display: none; }
+  .summary-table tr { border-bottom: 2px solid var(--line); }
+  .summary-table th:first-child, .summary-table th:last-child { width: auto; }
+  .summary-table tbody th { display: block; background: #edf2f7; }
+  .summary-table td { display: block; padding: 10px 14px; }
+  .summary-table td::before { content: attr(data-label); display: block; margin-bottom: 5px; font-weight: 600; color: #536575; font-size: 12px; }
+  .summary-table tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+  .overview-repo-nav { top: 0; }
+  .repository-summary .section-heading { flex-wrap: wrap; }
+}
+@media (max-width: 550px) {
+  .project-overview-page .main { padding: 18px 12px; }
+  .project-filters > label { flex: 1 1 140px; min-width: 0; }
+  .overview-branch { display: block; padding: 12px 6px; }
+  .overview-subject, .overview-commit-meta { margin-top: 8px; }
+  .overview-commit-meta { display: block; }
+  .overview-delta { margin-top: 5px; }
+  .overview-branch-scroll, .overview-main, .overview-compact .overview-main { padding: 12px; }
+  .repository-branches > summary span { display: block; margin: 4px 0 0; }
+  .overview-sync-details { max-width: calc(100vw - 70px); white-space: normal; }
+  .inspector-header, .project-inspector-content { padding: 16px; }
+}

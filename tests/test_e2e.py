@@ -83,6 +83,7 @@ def test_compose_public_demo_screenshots(browser):
     page.locator('.overview-density a[aria-current="false"]').click()
     assert page.locator("[data-summary-branch-id]").count() == 165
     shot(page, "project-branches-public-compact-zh-CN")
+    page.locator('.repository-branches > summary').first.click()
     page.locator('.expand').first.click()
     page.locator('[data-branch-id]').first.wait_for()
     shot(page, "02-project-expanded")
@@ -154,7 +155,7 @@ def test_browser_permissions_filters_url_and_forms(browser, fixture_url):
     page.get_by_role("link", name="选择仓库并导入 →").click()
     expect(page.locator('[name="external_ids"]')).to_have_count(50)
     page.locator('[name="external_ids"][value="20"]').check()
-    page.locator('[name="project_id"]').select_option(label="浏览器导入验收")
+    page.locator('select[name="project_id"]').select_option(label="浏览器导入验收")
     shot(page, "07-fixture-import")
     page.get_by_role("button", name="导入选中仓库").click()
     expect(page.locator("body")).to_contain_text("repository-020")
@@ -237,6 +238,11 @@ def test_git_workspace_selection_history_filters_and_mobile(browser, fixture_url
     page.set_viewport_size({"width": 390, "height": 844})
     expect(page.locator(".language-picker")).to_have_count(0)
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    expect(page.locator("#git-load-status")).to_be_visible()
+    page.route("**/repositories/1/log?**", lambda route: route.abort())
+    page.locator(".git-all-branches").click()
+    expect(page.locator("#git-load-status a")).to_be_visible()
+    page.unroute("**/repositories/1/log?**")
     shot(page, f"git-workspace-{locale}-mobile")
     assert not errors
     page.close()
@@ -254,6 +260,7 @@ def test_project_overview_twelve_repositories_and_mobile(browser, fixture_url, l
     page.goto(fixture_url + f"/projects/1?lang={locale}")
     expect(page.get_by_role("heading", name=headline, exact=True)).to_be_visible()
     expect(page.locator("[data-overview-repository]")).to_have_count(12)
+    expect(page.locator("[data-repository-summary]")).to_have_count(12)
     expect(page.locator(".overview-repo-nav a")).to_have_count(12)
     expect(page.locator("[data-summary-branch-id]")).to_have_count(12 * 55)
     expect(page.locator('form[method="post"]')).to_have_count(0)
@@ -262,6 +269,10 @@ def test_project_overview_twelve_repositories_and_mobile(browser, fixture_url, l
     expect(page.locator(".overview-features .overview-branch-name").first).to_have_text("feature/login")
     assert page.locator(".overview-releases .overview-branch").count() == 12
     assert page.locator(".overview-features .overview-branch").count() == 12 * 53
+    # Exercise wrapping with a legal long ref/message without altering shared data.
+    page.locator('.summary-branch-name').first.evaluate("el => el.textContent = 'release/' + 'long-reference-'.repeat(18)")
+    page.locator('.overview-branch-name').first.evaluate("el => el.textContent = 'release/' + 'long-reference-'.repeat(18)")
+    page.locator('.overview-subject').first.evaluate("el => el.textContent = 'Long commit summary '.repeat(40)")
     shot(page, f"project-overview-{locale}-12-repositories")
     assert page.locator(".overview-branch-scroll").first.evaluate("el => el.scrollHeight <= el.clientHeight + 1")
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
@@ -273,25 +284,34 @@ def test_project_overview_twelve_repositories_and_mobile(browser, fixture_url, l
     page.locator('.overview-density a[aria-current="false"]').click()
     assert "density=compact" in page.url
     expect(page.locator("[data-summary-branch-id]")).to_have_count(12 * 55)
-    assert page.locator(".overview-branch-scroll").first.bounding_box()["height"] <= 311
+    expect(page.locator('.repository-branches[open]')).to_have_count(0)
+    page.locator('.repository-branches > summary').first.click()
+    page.reload()
+    expect(page.locator('.repository-branches[open]')).to_have_count(1)
     shot(page, f"project-branches-{locale}-12-repositories-compact")
+    page.locator('.summary-count[href="#features-1"]').click()
+    page.reload()
+    expect(page.locator('[data-overview-repository="1"] .repository-branches')).to_have_attribute('open', '')
     last = page.locator('[data-overview-repository="1"] .overview-features .overview-branch').last
     last.scroll_into_view_if_needed()
     expect(last).to_be_visible()
-    assert page.locator(".overview-branch-scroll").first.evaluate("el => el.scrollTop > 0")
+    assert page.locator(".overview-branch-scroll").first.evaluate("el => el.scrollHeight <= el.clientHeight + 1")
     page.locator('.overview-repo-nav a[href="#repository-12"]').click()
     assert page.url.endswith("#repository-12")
-    expect(page.locator('[data-overview-repository="12"]')).to_be_in_viewport(ratio=.95)
+    expect(page.locator('[data-overview-repository="12"] .overview-repo-header')).to_be_in_viewport()
+    locator_bottom = page.locator('.overview-repo-nav').evaluate('el => el.getBoundingClientRect().bottom')
+    heading_top = page.locator('[data-overview-repository="12"] .overview-repo-header').evaluate('el => el.getBoundingClientRect().top')
+    assert heading_top >= locator_bottom
     first_hash = page.locator(".overview-main .overview-hash").first
     target = first_hash.get_attribute("title")
     first_hash.click()
-    expect(page.locator(".git-log-scope")).to_have_text("main")
-    expect(page.locator(".git-log-row.selected")).to_have_attribute("data-commit", target)
+    expect(page.locator("#project-inspector")).to_be_visible()
+    expect(page.locator("#project-inspector [data-copy]")).to_have_attribute("data-copy", target)
     page.go_back()
     page.goto(fixture_url + f"/projects/1?lang={locale}&density=compact")
     page.set_viewport_size({"width": 390, "height": 844})
     expect(page.locator(".language-picker")).to_have_count(0)
-    expect(page.locator(".overview-main h3").first).to_be_visible()
+    expect(page.locator("[data-repository-summary]").first).to_be_visible()
     expect(page.locator(".mobile-login")).to_be_visible()
     shot(page, f"project-overview-{locale}-mobile")
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), page.evaluate("Array.from(document.querySelectorAll('body *')).filter(el => el.getBoundingClientRect().right > innerWidth).map(el => [el.tagName, el.className, el.getBoundingClientRect().width]).slice(0, 20)")
@@ -324,6 +344,70 @@ def test_delayed_fragment_cannot_overwrite_new_selection(browser, fixture_url):
     expect(page.locator("#obsolete")).to_have_count(0)
     expect(page.locator("#branches-1")).not_to_have_attribute("aria-busy", "true")
     assert "bp_1=3" in page.url
+    page.close()
+
+
+def test_project_drawer_history_focus_retry_and_response_ownership(browser, fixture_url):
+    from playwright.sync_api import expect
+
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    page.goto(fixture_url + "/projects/1?q=login")
+    link = page.locator(".overview-features .overview-branch-name").first
+    link.click()
+    drawer = page.locator("#project-inspector")
+    expect(drawer).to_be_visible()
+    expect(drawer.locator(".project-inspector-title")).to_have_text("feature/login")
+    expect(drawer.locator(".git-target-name")).to_have_text("main")
+    assert "/projects/1?" in page.url and "q=login" in page.url and "inspect_branch=" in page.url
+    page.keyboard.press("Escape")
+    expect(drawer).not_to_be_visible()
+    expect(link).to_be_focused()
+    assert "inspect_branch=" not in page.url and "q=login" in page.url
+    link.click()
+    page.go_back()
+    expect(drawer).not_to_be_visible()
+    page.go_forward()
+    expect(drawer).to_be_visible()
+    page.reload()
+    expect(drawer.locator(".project-inspector-title")).to_have_text("feature/login")
+    page.keyboard.press("Escape")
+    page.route("**/repositories/*/inspect?**", lambda route: route.abort())
+    link.click()
+    expect(drawer.locator(".inspector-retry")).to_be_visible()
+    page.unroute("**/repositories/*/inspect?**")
+    drawer.locator(".inspector-retry").click()
+    expect(drawer.locator(".project-inspector-title")).to_have_text("feature/login")
+    shot(page, "project-inspector-desktop")
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    shot(page, "project-inspector-mobile")
+    page.keyboard.press("Escape")
+    page.evaluate("""() => {
+      window.pending = [];
+      jQuery.ajax = function () {const d=jQuery.Deferred(); const r=d.promise(); r.abort=()=>{}; pending.push(d); return r;};
+      jQuery('[data-inspect-url]').eq(0).click();
+      jQuery('[data-inspect-url]').eq(1).click();
+      pending[1].resolve('<p id="new-inspection">Newest detail</p>');
+      pending[0].resolve('<p id="old-inspection">Obsolete detail</p>');
+    }""")
+    expect(drawer.locator("#new-inspection")).to_be_visible()
+    expect(drawer.locator("#old-inspection")).to_have_count(0)
+    expect(drawer.locator("#project-inspector-body")).not_to_have_attribute("aria-busy", "true")
+    page.close()
+
+
+def test_project_collapsed_legacy_state_survives_view_refresh(browser, fixture_url):
+    from playwright.sync_api import expect
+
+    page = browser.new_page()
+    page.goto(fixture_url + '/projects/1?density=compact&expanded=1')
+    details = page.locator('[data-overview-repository="1"] .repository-branches')
+    expect(details).to_have_attribute('open', '')
+    details.locator('summary').first.click()
+    page.locator('.overview-heading-actions > a.button').click()
+    expect(details).not_to_have_attribute('open', '')
+    page.reload()
+    expect(details).not_to_have_attribute('open', '')
     page.close()
 
 
@@ -395,6 +479,7 @@ def test_login_language_persists_for_pages_fragments_notifications_and_mobile(br
     expect(slot).to_contain_text("feature/login")
     assert "q=login" in page.url and "expanded=1" in page.url
     page.locator('a').filter(has_text="feature/login").first.click()
+    page.locator('#project-inspector .project-inspector-actions a').first.click()
     branch_url = page.url
     page.route("**/jobs/*", lambda route: route.fulfill(
         json={"status": "queued", "queue_pending": True},

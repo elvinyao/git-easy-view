@@ -61,8 +61,11 @@ def main() -> int:
     for guide in INTRANET_GUIDES[1:]:
         if commands((ROOT / guide).read_text()) != baseline:
             errors.append(f"{guide}: shell commands differ from the Chinese edition")
-    shell_files = [(".agent/run.sh", "bash"), (".agent/deploy.sh", "sh")]
-    shell_files += [(str(path.relative_to(ROOT)), "sh") for path in sorted((ROOT / "deploy").glob("*.sh"))]
+    shell_files = [(".agent/run.sh", "bash"), (".agent/deploy.sh", "sh"), (".agent/compose.sh", "sh")]
+    shell_files += [
+        (str(path.relative_to(ROOT)), "bash" if path.name == "deploy.sh" else "sh")
+        for path in sorted((ROOT / "deploy").glob("*.sh"))
+    ]
     for path, shell in shell_files:
         result = subprocess.run([shell, "-n", str(ROOT / path)], capture_output=True, text=True)
         if result.returncode:

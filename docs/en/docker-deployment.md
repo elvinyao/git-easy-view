@@ -2,11 +2,21 @@
 
 [Documentation index](../README.md) · [简体中文](../zh-CN/docker-deployment.md) · [日本語](../ja/docker-deployment.md)
 
-For HTTP/HTTPS proxies used to download dependencies and access Git, plus company CA mounts, use the separate [deploy/ intranet deployment guide](../../deploy/README.en.md). Its entry point is `bash .agent/run.sh deploy-intranet`, with a dedicated Dockerfile, configuration setup, CA trust, and operations commands. The original `deploy` workflow described here remains available for direct access on personal computers.
+For standalone deployment, use the [deploy/ deployment guide](../../deploy/README.en.md). Run `bash deploy/deploy.sh`, add `--init` for configuration, and use `bash deploy/deploy.sh compose ...` for operations. It supports HTTP/HTTPS proxies, company CAs, and direct access on personal computers without `.agent/run.sh`. This page documents the development runner's deployment, database migration, and operations workflows.
 
 ## 1. Prerequisites and single-container layout
 
-Start Docker Desktop or Docker Engine and run commands from the repository root. Inspect or edit source on the host; execute project commands through `bash .agent/run.sh ...`.
+Start Docker Engine 20.10+ (or a corresponding Docker Desktop release), enable BuildKit, and run commands from the repository root. Inspect or edit source on the host; execute project commands through `bash .agent/run.sh ...`.
+
+Deployment supports `docker compose` and legacy `docker-compose` (minimum 1.29.2). By default, Compose runs inside the `docker:28-cli` tool container; no host Compose installation or upgrade is needed. The script prefers the plugin, falling back to `docker-compose`, and automatically uses compatible configuration and health polling for older versions. To use a company tool image, set `GEV_DOCKER_CLI_IMAGE` to an image containing `docker`, `sh`, `awk`, `date`, and either Compose implementation above. Keep the same setting for subsequent commands:
+
+```bash
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash .agent/run.sh deploy
+```
+
+The standalone entry point `bash deploy/deploy.sh` accepts the same setting; see the [intranet deployment guide](../../deploy/README.en.md). Personal computers can keep the default image.
+
+Use `bash .agent/run.sh deploy` for v1 updates. After a successful database migration, the script replaces the web container and retains the named SQLite and Git cache volumes. Calling legacy `docker-compose up` directly on newer Docker Engines can fail because of the obsolete `ContainerConfig` field.
 
 Only **one web container** stays running. It contains HTTP, scheduling, and one background job processor. SQLite stores projects, users, branches, and jobs; PostgreSQL and Redis are unnecessary. Jobs execute sequentially while cached pages remain readable. If a child process exits, the container restarts and unfinished jobs recover from the database.
 
@@ -47,7 +57,7 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools
 
 Use a long random password. Web account forms require 12–1024 characters. Change the env path to `runtime/production.env` for production. An existing username causes an error, without resetting its password. Redeployment does not require recreating accounts.
 
-For unattended first-time creation, have a secret manager place `runtime/admin-bootstrap.env` with mode 0600 and `GEV_ADMIN_PASSWORD=...`, then pass it to a one-off container:
+For unattended first-time creation, have a secret manager place `runtime/admin-bootstrap.env` with mode 0600 and `GEV_ADMIN_PASSWORD=...`, then pass it to a one-off container. The following `--env-from-file` example uses the default modern CLI image; with a custom legacy Compose image, use the interactive prompt above:
 
 ```bash
 bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T --env-from-file /workspace/runtime/admin-bootstrap.env tools python -m app.cli create-user --username your-admin --admin --password-env GEV_ADMIN_PASSWORD
@@ -159,7 +169,7 @@ bash .agent/run.sh compose --env-file runtime/production.env ps
 bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web
 bash .agent/run.sh compose --env-file runtime/production.env exec -T web alembic current
 bash .agent/run.sh compose --env-file runtime/production.env stop web
-bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300 web
+bash .agent/run.sh deploy --production --no-build --wait-timeout 300
 ```
 
 `ps` should show one running web service. Stopped containers from the old deployment may appear in `ps -a`; they consume no running resources.

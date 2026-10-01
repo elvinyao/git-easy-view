@@ -1,8 +1,9 @@
 {% extends 'base.html' %}
-{% from 'project_commit.html' import commit with context %}
+{% from 'project_commit.html' import commit, summary_tip, timestamp with context %}
 {% from 'git_icons.html' import icon %}
 {% block title %}{{ project.name }}{% endblock %}
 {% block body_class %}project-overview-page {{ 'overview-compact' if query.density == 'compact' else '' }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/project.css"><script defer src="/static/project.js"></script>{% endblock %}
 {% block content %}
   <header class="page-heading overview-heading">
     <div>
@@ -12,12 +13,13 @@
     </div>
     <div class="overview-heading-actions">
       <nav class="overview-density" aria-label="{{ t('显示方式') }}">
-        <a href="{{ query_url(density=None) }}" aria-current="{{ 'true' if query.density == 'full' else 'false' }}">{{ t('全部展开') }}</a>
-        <a href="{{ query_url(density='compact') }}" aria-current="{{ 'true' if query.density == 'compact' else 'false' }}">{{ t('紧凑视图') }}</a>
+        <a href="{{ query_url(density=None, open_repos=None, closed_repos=None) }}" aria-current="{{ 'true' if query.density == 'full' else 'false' }}">{{ t('全部展开') }}</a>
+        <a href="{{ query_url(density='compact', expanded=None, open_repos=None, closed_repos=None) }}" aria-current="{{ 'true' if query.density == 'compact' else 'false' }}">{{ t('全部收起') }}</a>
       </nav>
-      <a class="button" href="{{ query_url() }}">{{ t('刷新缓存视图 ↻') }}</a>
+      <a class="button overview-refresh" href="{{ query_url() }}" title="{{ t('重新加载已缓存的数据，不触发远程同步。') }}">{{ t('刷新缓存视图 ↻') }}</a>
     </div>
   </header>
+  {% include 'job_progress.html' ignore missing %}
   <div class="overview-status-bar">
     <div class="overview-totals">
       <span><strong>{{ all_count }}</strong> {{ t('项目仓库') }}</span>
@@ -26,7 +28,38 @@
     </div>
     {% if all_count %}{% include 'sync_summary.html' %}{% endif %}
   </div>
-  {% include 'filters.html' %}
+  <form class="filters project-filters" method="get">
+    <input type="hidden" name="lang" value="{{ locale }}">
+    {% if query.density == 'compact' %}<input type="hidden" name="density" value="compact">{% endif %}
+    <input type="hidden" name="expanded" value="{{ query.expanded|sort|join(',') }}">
+    <input type="hidden" name="open_repos" value="{{ query.open_repos|sort|join(',') }}">
+    <input type="hidden" name="closed_repos" value="{{ query.closed_repos|sort|join(',') }}">
+    {% for key, value in query.branch_pages.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+    <label>{{ t('仓库名称') }}<input type="search" name="repo_q" value="{{ query.repo_q }}" placeholder="{{ t('搜索仓库或命名空间') }}"></label>
+    <label class="search">{{ t('分支名称') }}<input type="search" name="q" value="{{ query.q }}" placeholder="{{ t('搜索分支，如 feature/login') }}"></label>
+    <label>{{ t('分支角色') }}<select name="role"><option value="">{{ t('全部角色') }}</option>{% for key, label in roles.items() %}<option value="{{ key }}" {% if query.role == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label>{{ t('当前提交关系') }}<select name="relation"><option value="">{{ t('全部关系') }}</option>{% for key, label in states.items() %}<option value="{{ key }}" {% if query.relation == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label class="attention-filter"><input type="checkbox" name="attention" value="1" {% if query.attention %}checked{% endif %}>{{ t('仅看同步需关注') }}</label>
+    <button type="submit">{{ t('应用筛选') }}</button><a href="?" class="muted">{{ t('重置') }}</a>
+  </form>
+  {% if repositories %}
+  <section class="repository-summary" aria-labelledby="repository-summary-heading">
+    <div class="section-heading"><h2 id="repository-summary-heading">{{ t('仓库摘要') }}</h2><span class="muted">{{ t('点击分支或 hash 就地查看详情') }}</span></div>
+    {% if query.q or query.role or query.relation %}<p class="muted">{{ t('摘要显示完整仓库，分支列表遵循筛选。') }}</p>{% endif %}
+    <div class="summary-table-wrap"><table class="summary-table">
+      <thead><tr><th>{{ t('仓库') }}</th><th>{{ t('默认主干') }}</th><th>{{ t('发布分支') }}</th><th>{{ t('最新功能分支') }}</th><th>{{ t('同步状态') }}</th></tr></thead>
+      <tbody>{% for repo in repositories %}{% set overview = overviews[repo.id] %}{% set status = repo_statuses[repo.id] %}
+        <tr data-repository-summary="{{ repo.id }}">
+          <th scope="row"><a class="summary-repository" href="#repository-{{ repo.id }}" title="{{ repo.full_name }}">{{ repo.name }}</a><span class="summary-namespace" title="{{ repo.full_name }}">{{ repo.full_name }}</span><a class="summary-count" href="{{ complete_url(repo, 'repository') }}">{{ t('{count} 分支', count=overview.branch_count) }} ↓</a></th>
+          <td data-label="{{ t('默认主干') }}">{{ summary_tip(overview.main, '默认主干不可用') }}</td>
+          <td data-label="{{ t('发布分支') }}">{{ summary_tip(overview.summary_release, '暂无发布分支') }}{% if overview.summary_release %}<a class="summary-count" href="{{ complete_url(repo, 'releases') }}">{% if overview.summary_release.branch.config and overview.summary_release.branch.config.active_release %}{{ t('当前发布') }} · {% endif %}{{ t('全部 {count} 条', count=overview.release_count) }} ↓</a>{% endif %}</td>
+          <td data-label="{{ t('最新功能分支') }}">{{ summary_tip(overview.summary_feature, '暂无功能分支') }}{% if overview.summary_feature %}<a class="summary-count" href="{{ complete_url(repo, 'features') }}">{{ t('全部 {count} 条', count=overview.feature_count) }} ↓</a>{% endif %}</td>
+          <td data-label="{{ t('同步状态') }}"><strong class="summary-health {{ 'attention' if status.attention else 'healthy' }}">{{ t('连接已暂停') if status.disabled else t('同步异常') if status.error else t('等待首次同步') if status.missing else t('待发布更新') if status.pending else t('数据过期') if status.aged else t('同步正常') }}</strong><span class="summary-sync-time">Git · {{ timestamp(repo.git_synced_at) if repo.git_synced_at else t('尚未同步') }}</span><span class="summary-sync-time">API · {{ timestamp(repo.api_synced_at) if repo.api_synced_at else t('尚未同步') }}</span>{% if status.attention %}<a class="summary-count" href="/repositories/{{ repo.id }}?return_to={{ project_return_path|urlencode }}">{{ t('查看原因') }} →</a>{% endif %}</td>
+        </tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
   {% if repositories %}
   <nav class="overview-repo-nav" aria-label="{{ t('仓库快速定位') }}">
     {% for repo in repositories %}
@@ -40,7 +73,7 @@
   <section class="repository-list overview-list" aria-label="{{ t('仓库分支总览') }}">
     <div class="section-heading overview-section-heading">
       <h2>{{ t('仓库分支总览') }}</h2>
-      <span class="muted">{{ t('全部分支 · 最近提交优先 · 提交时间 UTC') }}</span>
+      <span class="muted">{{ t('全部分支 · 当前发布优先 · 最近提交排序') }}</span>
     </div>
     {% for repo in repositories %}
       {% set overview = overviews[repo.id] %}
@@ -48,7 +81,7 @@
       <article id="repository-{{ repo.id }}" class="panel repository-row" aria-label="{{ repo.full_name }}" data-overview-repository="{{ repo.id }}">
         <header class="overview-repo-header">
           <div class="overview-repo-name">
-            {{ icon('folder') }}<a href="/repositories/{{ repo.id }}" title="{{ repo.full_name }}">{{ repo.full_name }}</a>
+            {{ icon('folder') }}<a href="/repositories/{{ repo.id }}?return_to={{ project_return_path|urlencode }}" title="{{ repo.full_name }}">{{ repo.full_name }}</a>
           </div>
           <div class="overview-repo-meta"><span>{{ repo.connection.kind|upper }}</span><span>{{ t('{count} 分支', count=overview.branch_count) }}</span>{% if status.disabled %}<span class="overview-paused">{{ t('连接已暂停') }}</span>{% endif %}</div>
           <details class="overview-sync">
@@ -59,13 +92,15 @@
               {% if repo.sync_error or repo.api_error %}<span>{{ t('同步异常，请查看仓库详情') }}</span>{% endif %}
             </div>
           </details>
-          <a class="overview-open" href="/repositories/{{ repo.id }}/branches?lang={{ locale }}">{{ t('Git 工作台') }} ↗</a>
+          <a class="overview-open" href="/repositories/{{ repo.id }}/branches?lang={{ locale }}&amp;return_to={{ project_return_path|urlencode }}">{{ t('Git 工作台') }} ↗</a>
         </header>
+        <details class="repository-branches" {% if repo.id not in query.closed_repos and (query.density != 'compact' or repo.id in query.open_repos or repo.id in query.expanded) %}open{% endif %}>
+        <summary>{{ t('全部分支') }} <span>{{ t('匹配 {visible} / 全部 {total} 分支', visible=overview.filtered_count, total=overview.branch_count) }}</span></summary>
         <div class="overview-map">
           <section class="overview-cell overview-main" aria-label="{{ t('默认主干') }}">
             <div class="overview-default-label">
               <h3><i class="overview-column-dot is-default"></i>{{ t('默认主干') }}</h3>
-              <p class="overview-baseline-note">{{ t('以默认主干为基准，展示当前提交包含关系。') }}</p>
+              <p class="overview-baseline-note">{{ t('以默认主干为基准，展示当前提交包含关系。') }}{% if query.q or query.role or query.relation %} {{ t('主干作为比较上下文保留') }}{% endif %}</p>
             </div>
             {% if overview.main %}{{ commit(overview.main) }}{% else %}<p class="overview-empty">{{ t('正在导入') if not repo.git_synced_at else t('空仓库：当前没有分支。') if overview.is_empty else t('默认主干不可用') }}</p>{% endif %}
             <div class="overview-role-counts">
@@ -81,16 +116,15 @@
             <div class="overview-relationship" aria-label="{{ t('分支关系概览') }}">
               <span class="overview-baseline-name">{{ icon('branch') }} {{ overview.main.branch.name if overview.main else t('默认主干不可用') }}</span>
               <span class="overview-relationship-line" aria-hidden="true"></span>
-              {% set labels = {'identical': '相同', 'contained': '已包含', 'diverged': '有独有提交', 'unrelated': '无共同历史', 'missing': '未分析'} %}
               {% for state, count in overview.relations.items() %}
-                {% if count %}<span class="overview-state {{ state }}" data-relation-count="{{ state }}">{{ t(labels[state]) }} <b>{{ count }}</b></span>{% endif %}
+                {% if count %}<span class="overview-state {{ state }}" data-relation-count="{{ state }}">{{ states[state] }} <b>{{ count }}</b></span>{% endif %}
               {% endfor %}
               <small>{{ t('显示 {visible} / {total} 分支', visible=overview.displayed_count, total=overview.branch_count) }}</small>
             </div>
             <div class="overview-branch-scroll" tabindex="0" role="region" aria-label="{{ t('{repository} 的全部分支', repository=repo.full_name) }}">
               {% for group in overview.groups %}
-                <section class="overview-cell overview-{{ 'releases' if group.role == 'release' else 'features' if group.role == 'feature' else 'other-main' if group.role == 'main' else 'others' }}" aria-label="{{ t(group.label) }}">
-                  <h3><i class="overview-column-dot {{ group.role }}"></i>{{ t(group.label) }} <span>{{ group.views|length }}</span><small>{{ t('最近提交优先') }}</small></h3>
+                <section class="overview-cell overview-{{ 'releases' if group.role == 'release' else 'features' if group.role == 'feature' else 'other-main' if group.role == 'main' else 'others' }}" id="{{ 'releases' if group.role == 'release' else 'features' if group.role == 'feature' else group.role }}-{{ repo.id }}" aria-label="{{ t(group.label) }}">
+                  <h3><i class="overview-column-dot {{ group.role }}"></i>{{ t(group.label) }} <span>{{ group.views|length }}</span><small>{{ t('当前发布优先 · 最近提交排序') if group.role == 'release' else t('最近提交优先') }}</small></h3>
                   <div class="overview-branch-grid">
                     {% for view in group.views %}{{ commit(view) }}{% endfor %}
                   </div>
@@ -99,12 +133,14 @@
             </div>
           </div>
         </div>
+        </details>
         <div id="branches-{{ repo.id }}" class="branch-slot" hidden data-repo-id="{{ repo.id }}"><p class="empty">{{ t('正在加载分支…') }}</p></div>
       </article>
     {% else %}
       <div class="empty panel">
         <h3>{{ t('没有匹配的仓库') if all_count else t('项目还没有仓库') }}</h3>
         <p>{{ t('调整分支筛选条件后重试。') if all_count else t('请由管理员从平台连接选择并导入仓库。') }}</p>
+        {% if user and user.is_admin and not all_count %}<a class="button" href="/admin">{{ t('配置连接并导入仓库') }} →</a>{% endif %}
       </div>
     {% endfor %}
     <div class="pagination">
@@ -114,4 +150,8 @@
     </div>
   </section>
   <p class="overview-legend"><span class="overview-legend-item"><b>↑</b> {{ t('领先主干') }}</span><span class="overview-legend-item"><b>↓</b> {{ t('落后主干') }}</span><span>{{ t('点击 hash 查看提交 · 点击分支查看关系') }}</span></p>
+  <dialog id="project-inspector" aria-labelledby="inspector-heading" data-loading="{{ t('正在加载详情…') }}" data-failed="{{ t('详情加载失败，原有概览未改变。') }}" data-retry="{{ t('重试') }}" data-copy-success="{{ t('已复制提交哈希。') }}" data-copy-failed="{{ t('无法复制，请手动复制提交哈希。') }}">
+    <header class="inspector-header"><h2 id="inspector-heading">{{ t('分支与提交详情') }}</h2><button type="button" class="inspector-close" aria-label="{{ t('关闭详情') }}">×</button></header>
+    <div class="inspector-feedback" role="status" aria-live="polite"></div><div id="project-inspector-body"></div>
+  </dialog>
 {% endblock %}

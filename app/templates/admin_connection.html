@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% import 'form_fields.html' as f with context %}
 {% block content %}
   <p class="eyebrow">
     <a href="/admin">{{ t('管理工作台') }}</a> {{ t('/ 平台连接') }}
@@ -24,26 +25,27 @@
         <label>
           {{ t('连接名称') }}
           <input name="name"
-                 value="{{ connection.name if connection else '' }}"
+                 {{ f.attrs('name') }} value="{{ f.value('name', connection.name if connection else '') }}"
                  maxlength="255"
                  required>
         </label>
         <label>
           {{ t('平台') }}
-          <select name="kind">
+          <select name="kind" {{ f.attrs('kind') }}>
             <option value="github"
-                    {% if connection and connection.kind=='github' %}selected{% endif %}>
+                    {% if form_values.get('kind', connection.kind if connection else 'github')=='github' %}selected{% endif %}>
               GitHub / GitHub Enterprise
             </option>
             <option value="gitlab"
-                    {% if connection and connection.kind=='gitlab' %}selected{% endif %}>{{ t('GitLab / 自建 GitLab') }}</option>
+                    {% if form_values.get('kind', connection.kind if connection else '')=='gitlab' %}selected{% endif %}>{{ t('GitLab / 自建 GitLab') }}</option>
           </select>
         </label>
         <label>
           {{ t('HTTPS 实例地址') }}
           <input name="base_url"
+                 {{ f.attrs('base_url') }}
                  type="url"
-                 value="{{ connection.base_url if connection else '' }}"
+                 value="{{ f.value('base_url', connection.base_url if connection else '') }}"
                  placeholder="{{ t('https://github.com 或 https://gitlab.example.com') }}"
                  required
                  maxlength="2048">
@@ -51,6 +53,7 @@
         <label>
           {{ t('访问令牌（留空保留已保存令牌）') if connection else t('访问令牌（留空使用匿名访问）') }}
           <input name="token"
+                 {{ f.attrs('token') }}
                  type="password"
                  autocomplete="new-password"
                  maxlength="8192">
@@ -58,7 +61,7 @@
         <label>
           {{ t('公司 CA 文件路径（可选）') }}
           <input name="ca_bundle_path"
-                 value="{{ connection.ca_bundle_path or '' if connection else '' }}"
+                 {{ f.attrs('ca_bundle_path') }} value="{{ f.value('ca_bundle_path', connection.ca_bundle_path or '' if connection else '') }}"
                  placeholder="/certs/company-ca.pem"
                  maxlength="2048">
         </label>

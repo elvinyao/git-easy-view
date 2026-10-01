@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% import 'form_fields.html' as f with context %}
 {% block content %}
   <p class="eyebrow">
     <a href="/admin">{{ t('管理工作台') }}</a> {{ t('/ 仓库配置') }}
@@ -8,30 +9,32 @@
     <a class="button" href="/repositories/{{ repo.id }}">{{ t('查看仓库') }}</a>
   </header>
   {% include 'repo_status.html' %}
+  {% include 'job_progress.html' %}
   <div class="admin-grid">
     <section class="panel">
       <h2>{{ t('同步与角色规则') }}</h2>
-      <form method="post" class="stack">
+      <form method="post" action="/admin/repositories/{{ repo.id }}" class="stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>
           {{ t('同步间隔（秒）') }}
           <input type="number"
                  name="sync_interval_seconds"
+                 {{ f.attrs('sync_interval_seconds') }}
                  min="30"
                  max="604800"
-                 value="{{ repo.sync_interval_seconds }}"
+                 value="{{ f.value('sync_interval_seconds', repo.sync_interval_seconds) }}"
                  required>
         </label>
         <label>
           {{ t('发布分支前缀（逗号分隔）') }}
           <input name="release_prefixes"
-                 value="{{ repo.role_prefixes.get('release', []) |join(',') }}"
+                 {{ f.attrs('release_prefixes') }} value="{{ f.value('release_prefixes', repo.role_prefixes.get('release', []) |join(',')) }}"
                  maxlength="2000">
         </label>
         <label>
           {{ t('功能分支前缀（逗号分隔）') }}
           <input name="feature_prefixes"
-                 value="{{ repo.role_prefixes.get('feature', []) |join(',') }}"
+                 {{ f.attrs('feature_prefixes') }} value="{{ f.value('feature_prefixes', repo.role_prefixes.get('feature', []) |join(',')) }}"
                  maxlength="2000">
         </label>
         <p class="help">{{ t('前缀仅决定角色，不决定创建来源。保存后重新分析来源候选。') }}</p>
@@ -46,7 +49,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>
           {{ t('历史起始日期（可选）') }}
-          <input type="date" name="history_since">
+          <input type="date" name="history_since" {{ f.attrs('history_since') }} value="{{ f.value('history_since') }}">
         </label>
         <p class="help">{{ t('获取全部开放记录，以及起始日期以来更新的关闭／合并记录。留空使用当前覆盖窗口。') }}</p>
         <button>{{ t('立即同步 / 补充历史') }}</button>

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% import 'form_fields.html' as f with context %}
 {% block content %}
   <p class="eyebrow">
     <a href="/admin/connections/{{ connection.id }}">{{ connection.name }}</a> {{ t('/ 仓库导入') }}
@@ -6,15 +7,35 @@
   <h1>{{ t('选择仓库') }}</h1>
   <p class="muted">{{ t('每次最多 50 个。提交时重新向平台确认仓库身份与地址；已导入仓库会复用分析副本。') }}</p>
   <section class="panel detail-section">
-    <form method="post" action="/admin/repositories/import">
+    <form method="get" action="/admin/connections/{{ connection.id }}/repositories" class="inline-form import-search">
+      <label>{{ t('搜索仓库或命名空间') }}<input name="q" value="{{ import_search }}" maxlength="255" type="search"></label>
+      <input type="hidden" name="project_id" value="{{ selected_project }}" data-import-project-filter>
+      <button type="submit">{{ t('搜索') }}</button>
+    </form>
+    <form method="post" action="/admin/repositories/import" data-import-basket="{{ connection.id }}"
+          data-count-message="{{ t('已选择 {count} / 50 个仓库', count='{count}') }}"
+          data-limit-message="{{ t('请一次选择 1–50 个仓库。') }}"
+          data-remove-label="{{ t('移除选择') }}">
+      <script type="application/json" data-import-initial>{{ form_lists.get('external_ids', [])|tojson }}</script>
+      {% if import_recovery %}<input type="hidden" data-import-recovery value="1">{% endif %}
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="connection_id" value="{{ connection.id }}">
       <label>
         {{ t('导入到项目') }}
-        <select name="project_id" required>
-          {% for project in projects %}<option value="{{ project.id }}">{{ project.name }}</option>{% endfor %}
+        <select name="project_id" {{ f.attrs('project_id') }} required>
+          {% for project in projects %}<option value="{{ project.id }}" {% if project.id|string == selected_project|string %}selected{% endif %}>{{ project.name }}</option>{% endfor %}
         </select>
       </label>
+      <div class="import-tools">
+        <button type="button" data-select-page>{{ t('选择本页') }}</button>
+        <button type="button" data-deselect-page>{{ t('取消本页选择') }}</button>
+        <p data-selected-count role="status" aria-live="polite">{{ t('已选择 {count} / 50 个仓库', count=form_lists.get('external_ids', [])|length) }}</p>
+      </div>
+      <p class="help">{{ t('选择会保留到其他页。完成导入后才会清空。') }}</p>
+      <p class="notice danger" data-import-limit hidden role="alert"></p>
+      <div data-selection-list class="import-selection-list"></div>
+      <fieldset {{ f.attrs('external_ids') }} tabindex="-1" class="import-options">
+      <legend>{{ t('选择仓库') }}</legend>
       <div class="table-scroll">
         <table>
           <thead>
@@ -29,8 +50,9 @@
               <tr>
                 <td>
                   <label class="remote-check">
-                    <input type="checkbox" name="external_ids" value="{{ remote.external_id }}">
+                    <input type="checkbox" name="external_ids" value="{{ remote.external_id }}" data-name="{{ remote.full_name }}" {% if remote.external_id in form_lists.get('external_ids', []) %}checked{% endif %}>
                     <span>{{ remote.full_name }}</span>
+                    {% if remote.external_id in imported_ids %}<span class="badge">{{ t('已导入') }}</span>{% endif %}
                   </label>
                 </td>
                 <td>{{ remote.default_branch or t('未知') }}</td>
@@ -44,10 +66,13 @@
           </tbody>
         </table>
       </div>
+      </fieldset>
+      <div data-import-hidden></div>
       <button class="primary" {% if not projects %}disabled{% endif %}>{{ t('导入选中仓库') }}</button>
       {% if not projects %}<p>{{ t('请先创建项目。') }}</p>{% endif %}
     </form>
-    <nav class="pagination">
+    {% if import_recovery %}<p><a class="button" href="/admin/connections/{{ connection.id }}/repositories?project_id={{ selected_project|urlencode }}">{{ t('返回仓库列表') }}</a></p>{% endif %}
+    <nav class="pagination" data-import-pagination>
       {% if query.page>1 %}<a class="button" href="{{ query_url(page=query.page-1) }}">{{ t('上一页') }}</a>{% endif %}
       <span>{{ t('第 {page} 页 · {total} 个仓库', page=query.page, total=total) }}</span>
       {% if query.page*50<total %}<a class="button" href="{{ query_url(page=query.page+1) }}">{{ t('下一页') }}</a>{% endif %}

@@ -1,5 +1,9 @@
 <form method="get" class="filters">
   <input type="hidden" name="lang" value="{{ locale }}">
+  {% if project_return_url %}<input type="hidden" name="return_to" value="{{ project_return_url }}">{% endif %}
+  {% if request.query_params.get('target_id') %}<input type="hidden" name="target_id" value="{{ request.query_params.get('target_id') }}">{% endif %}
+  {% if query.repo_q %}<input type="hidden" name="repo_q" value="{{ query.repo_q }}">{% endif %}
+  {% if query.attention %}<input type="hidden" name="attention" value="1">{% endif %}
   {% if query.density == 'compact' %}<input type="hidden" name="density" value="compact">{% endif %}
   <label class="search">
     {{ t('分支名称') }}
@@ -33,5 +37,5 @@
     <input type="hidden" name="{{ key }}" value="{{ value }}">
   {% endfor %}
   <button type="submit">{{ t('应用筛选') }}</button>
-  <a class="muted" href="?">{{ t('重置') }}</a>
+  <a class="muted" href="{{ query_url(q='', role='', relation='', page=1) }}">{{ t('重置') }}</a>
 </form>

@@ -49,7 +49,7 @@ def graph_rows(commits):
     return rows, width
 
 
-def workspace_context(request, repo, views):
+def workspace_context(request, repo, views, *, total_branches=None):
     """Only expose commits reachable from the displayed, authorized snapshot."""
     selected_id = number(request.query_params.get("branch_id"), 0, 2**31 - 1)
     selected_view = next((view for view in views if view.branch.id == selected_id), None)
@@ -72,7 +72,7 @@ def workspace_context(request, repo, views):
                 git = GitService(cache_path(request.app.state.settings, repo.id))
                 try:
                     commits = git.history(heads, limit=100)
-                except (GitError, ValueError):
+                except (GitError, OSError, ValueError):
                     history_error = "本地提交历史暂不可读取，已缓存的分支关系仍可查看。"
                 if commits:
                     selected_commit = next((commit for commit in commits if commit.oid == requested_commit), None) if requested_commit else commits[0]
@@ -80,8 +80,12 @@ def workspace_context(request, repo, views):
                         raise HTTPException(404)
                     try:
                         changes = git.changed_files(selected_commit)
-                    except (GitError, ValueError):
+                    except (GitError, OSError, ValueError):
                         files_error = "变更文件暂不可读取，请稍后重试。"
+                elif requested_commit and not history_error:
+                    raise HTTPException(404)
+    elif requested_commit:
+        raise HTTPException(404)
     rows, graph_width = graph_rows(commits)
     references = {}
     for view in views:
@@ -91,6 +95,17 @@ def workspace_context(request, repo, views):
     detail_tab = request.query_params.get("detail", "commit")
     if detail_tab not in {"commit", "branch"}:
         detail_tab = "commit"
+    empty_state, empty_message = None, None
+    if not heads and repo.git_synced_at is None:
+        empty_state, empty_message = (
+            ("failed", "首次同步失败，尚无可用快照。") if repo.sync_error
+            else ("pending", "正在等待首次同步，分支和提交将在同步完成后显示。")
+        )
+    elif not views:
+        empty_state, empty_message = (
+            ("filtered", "没有符合筛选条件的分支。") if total_branches
+            else ("empty", "空仓库：当前没有分支。")
+        )
 
     def workspace_url(**changes):
         values = dict(branch_id=selected_id or None, commit=requested_commit or None, detail=detail_tab)
@@ -101,5 +116,5 @@ def workspace_context(request, repo, views):
         selected_view=selected_view, selected_commit=selected_commit, selected_branch_id=selected_id,
         log_rows=rows, graph_width=graph_width, file_changes=changes[:200], file_total=len(changes),
         history_error=history_error, files_error=files_error, detail_tab=detail_tab,
-        workspace_url=workspace_url,
+        workspace_url=workspace_url, empty_state=empty_state, empty_message=empty_message,
     )

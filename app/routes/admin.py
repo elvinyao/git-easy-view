@@ -4,7 +4,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import require_admin
+from app.auth import require_admin, session_data
 from app.db import get_session
 from app.i18n import Message
 from app.models import (
@@ -20,8 +20,9 @@ from app.models import (
     User,
     utc_now,
 )
-from app.web import form_data, number, render
+from app.web import form_data as verified_form_data, number, render as web_render
 from app.jobs import enqueue_sync, locked_repository
+from app.job_progress import progress_context
 from app.providers import get_provider, validate_remote_url
 from app.providers.base import _url_parts
 from app.sync import branch_role
@@ -41,7 +42,90 @@ FIELD_LABELS = {
     "release_prefixes": "发布分支前缀（逗号分隔）",
     "feature_prefixes": "功能分支前缀（逗号分隔）",
     "role": "分支角色",
+    "password": "密码",
+    "active_release": "当前发布",
+    "manual_source_branch_id": "人工指定来源",
+    "main_comparison_branch_id": "主要比较对象",
+    "manual_targets": "人工计划目标",
+    "project_id": "导入到项目",
+    "external_ids": "选择仓库",
+    "history_since": "历史起始日期（可选）",
 }
+
+
+class FormError(HTTPException):
+    def __init__(self, field, detail, status_code=400):
+        super().__init__(status_code, detail)
+        self.field = field
+
+
+async def form_data(request: Request):
+    form = await verified_form_data(request)
+    allowed = set(FIELD_LABELS) | {"connection_id", "is_admin", "is_active"}
+    request.state.form_values = {
+        key: str(form[key]) for key in allowed - {"token", "password"} if key in form
+    }
+    # Instance addresses never accept query, fragment, or account components;
+    # strip them from error recovery because pasted URLs can contain secrets.
+    if "base_url" in request.state.form_values:
+        base = request.state.form_values["base_url"]
+        request.state.form_values["base_url"] = "" if "@" in base else base.split("?", 1)[0].split("#", 1)[0]
+    request.state.form_lists = {
+        key: [str(value) for value in form.getlist(key)]
+        for key in ("external_ids", "manual_targets")
+    }
+    return form
+
+
+def render(request, template, session, user, **context):
+    context.setdefault("form_values", getattr(request.state, "form_values", {}))
+    context.setdefault("form_lists", getattr(request.state, "form_lists", {}))
+    context.setdefault("form_errors", getattr(request.state, "form_errors", {}))
+    context.setdefault("form_submitted", hasattr(request.state, "form_values"))
+    return web_render(request, template, session, user, **context)
+
+
+def recover_form(request, exc):
+    """Render known admin forms from fresh rows after the failed transaction closes."""
+    if not request.url.path.startswith("/admin/") or not hasattr(request.state, "form_values"):
+        return None
+    values = request.state.form_values
+    field = getattr(exc, "field", None)
+    if field is None:
+        field = "username" if "/users" in request.url.path else "slug" if request.url.path == "/admin/projects" else "name"
+    request.state.form_errors = {field: exc.detail}
+    identity = session_data(request)
+    with Session(request.app.state.engine) as session:
+        user = session.get(User, identity["user_id"]) if identity else None
+        if not user or not user.is_active or not user.is_admin:
+            return None
+        params = request.path_params
+        path = request.url.path
+        if path == "/admin/repositories/import":
+            connection = session.get(PlatformConnection, number(values.get("connection_id"), 0))
+            if not connection:
+                return None
+            response = render(request, "admin_import.html", session, user, connection=connection,
+                              remote_repositories=[dict(external_id=value, full_name=value, default_branch=None) for value in request.state.form_lists.get("external_ids", [])],
+                              total=0, imported_ids=set(),
+                              selected_project=values.get("project_id", ""), import_search="",
+                              import_recovery=True)
+        elif path == "/admin/projects":
+            response = home(request, user, session)
+        elif "project_id" in params:
+            response = project_form(params["project_id"], request, user, session)
+        elif path == "/admin/users" or "user_id" in params:
+            response = user_form(request, params.get("user_id"), user, session)
+        elif path == "/admin/connections" or "connection_id" in params:
+            response = connection_form(request, params.get("connection_id"), user, session)
+        elif "repository_id" in params:
+            response = repository_form(params["repository_id"], request, user, session)
+        elif "branch_id" in params:
+            response = branch_form(params["branch_id"], request, user, session)
+        else:
+            return None
+        response.status_code = exc.status_code
+        return response
 
 
 def audit(session, user, action, entity, details=None):
@@ -72,8 +156,8 @@ def commit(session):
 def text_field(form, name, maximum=255, required=True):
     value = str(form.get(name, "")).strip()
     if len(value) > maximum or (required and not value):
-        raise HTTPException(
-            400,
+        raise FormError(
+            name,
             Message(
                 "{name}：请填写有效内容（最多 {maximum} 字符）。",
                 name=Message(FIELD_LABELS.get(name, name)),
@@ -240,12 +324,12 @@ def save_user(
     username = text_field(form, "username", 150)
     password = str(form.get("password", ""))
     if (not user_id or password) and not 12 <= len(password) <= 1024:
-        raise HTTPException(400, "密码长度须为 12–1024 个字符。")
+        raise FormError("password", "密码长度须为 12–1024 个字符。")
     active = "is_active" in form if user_id else True
     admin = "is_admin" in form
     if user_id == user.id and (not active or not admin):
-        raise HTTPException(
-            400, "不能停用当前管理员或移除自己的管理权限，请由另一管理员处理。"
+        raise FormError(
+            "is_admin", "不能停用当前管理员或移除自己的管理权限，请由另一管理员处理。"
         )
     person.username, person.is_active, person.is_admin = username, active, admin
     if password:
@@ -381,12 +465,12 @@ def save_connection(
         or len(token) > 8192
         or any(ord(c) < 32 for c in token)
     ):
-        raise HTTPException(400, "请选择有效平台类型并检查令牌格式。")
+        raise FormError("kind" if kind not in ("github", "gitlab") else "token", "请选择有效平台类型并检查令牌格式。")
     try:
         _url_parts(base)
     except Exception:
-        raise HTTPException(
-            400, "平台地址须为无账号、查询参数的 HTTPS 实例地址。"
+        raise FormError(
+            "base_url", "平台地址须为无账号、查询参数的 HTTPS 实例地址。"
         ) from None
     has_repos = connection_id and session.scalar(
         select(Repository.id).where(Repository.connection_id == connection.id).limit(1)
@@ -394,8 +478,8 @@ def save_connection(
     if has_repos and (
         kind != connection.kind or base != connection.base_url.rstrip("/")
     ):
-        raise HTTPException(
-            400, "已有仓库的连接不能更换平台或实例地址；请为另一实例创建新连接。"
+        raise FormError(
+            "base_url", "已有仓库的连接不能更换平台或实例地址；请为另一实例创建新连接。"
         )
     changed = (
         not connection_id
@@ -503,6 +587,9 @@ def remote_repositories(
     except Exception:
         raise HTTPException(400, "平台仓库读取失败，请检查连接或稍后重试。") from None
     page = number(request.query_params.get("page"))
+    search = request.query_params.get("q", "").strip()[:255]
+    repos = [repo for repo in repos if search.casefold() in repo.full_name.casefold()]
+    imported_ids = set(session.scalars(select(Repository.external_id).where(Repository.connection_id == connection.id)))
     return render(
         request,
         "admin_import.html",
@@ -511,6 +598,9 @@ def remote_repositories(
         connection=connection,
         remote_repositories=repos[(page - 1) * 50 : page * 50],
         total=len(repos),
+        imported_ids=imported_ids,
+        import_search=search,
+        selected_project=request.query_params.get("project_id", ""),
     )
 
 
@@ -531,9 +621,9 @@ def import_repositories(
         or len(ids) > 50
         or any(not isinstance(x, str) or not x or len(x) > 255 for x in ids)
     ):
-        raise HTTPException(400, "请一次选择 1–50 个仓库。")
+        raise FormError("external_ids", "请一次选择 1–50 个仓库。")
     if connection.auth_disabled:
-        raise HTTPException(400, "请先检查平台连接。")
+        raise FormError("external_ids", "请先检查平台连接。")
     captured = connection_fingerprint(connection)
     try:
         with provider_for(request, connection) as provider:
@@ -546,8 +636,8 @@ def import_repositories(
                 validate_remote_url(record.web_url, provider.web_root)
                 metadata.append(record)
     except Exception:
-        raise HTTPException(
-            400, "仓库身份或地址重新验证失败，请返回列表重试。"
+        raise FormError(
+            "external_ids", "仓库身份或地址重新验证失败，请返回列表重试。"
         ) from None
     # Acquire repository locks before the connection lock, matching workers.
     existing = session.scalars(
@@ -585,9 +675,9 @@ def import_repositories(
         audit(session, user, "repository.import", repo, {"project_id": project.id})
         repos.append(repo)
     commit(session)
-    for repo in repos:
-        enqueue(request, session, repo, user)
-    return RedirectResponse(f"/projects/{project.id}", 303)
+    jobs = [enqueue(request, session, repo, user).id for repo in repos]
+    return RedirectResponse(f"/projects/{project.id}?jobs=" + ",".join(map(str, jobs))
+                            + f"&imported_connection={connection.id}", 303)
 
 
 @router.get("/repositories/{repository_id}")
@@ -611,6 +701,7 @@ def repository_form(
         user,
         repo=repo,
         jobs=jobs,
+        job_progress=progress_context(session, request, repository_id=repo.id, user=user),
         notice=(
             "待恢复连接后分析：本地配置可以继续保存。"
             if repo.connection.auth_disabled
@@ -634,7 +725,7 @@ def repository_config(
         or not interval.isdecimal()
         or not 30 <= int(interval) <= 604800
     ):
-        raise HTTPException(400, "同步间隔须为 30–604800 秒。")
+        raise FormError("sync_interval_seconds", "同步间隔须为 30–604800 秒。")
     prefixes = {
         key: [
             part.strip()
@@ -646,7 +737,7 @@ def repository_config(
         for key in ("release", "feature")
     }
     if any(len(values) > 50 for values in prefixes.values()):
-        raise HTTPException(400, "每种角色最多设置 50 个前缀。")
+        raise FormError(next(key + "_prefixes" for key, values in prefixes.items() if len(values) > 50), "每种角色最多设置 50 个前缀。")
     repo = locked_repository(session, repository_id)
     repo.sync_interval_seconds, repo.role_prefixes = int(interval), prefixes
     audit(
@@ -680,7 +771,7 @@ def synchronize(
             if since > utc_now():
                 raise ValueError()
         except ValueError:
-            raise HTTPException(400, "历史起始日期须为今天或以前的有效日期。") from None
+            raise FormError("history_since", "历史起始日期须为今天或以前的有效日期。") from None
     audit(
         session,
         user,
@@ -688,8 +779,8 @@ def synchronize(
         repo,
         {"history_since": since.isoformat() if since else None},
     )
-    enqueue(request, session, repo, user, since)
-    return RedirectResponse(f"/admin/repositories/{repo.id}", 303)
+    job = enqueue(request, session, repo, user, since)
+    return RedirectResponse(f"/admin/repositories/{repo.id}?jobs={job.id}", 303)
 
 
 @router.post("/repositories/{repository_id}/projects")
@@ -772,23 +863,25 @@ def branch_config(
     branch = get_or_404(session, Branch, branch_id)
     role = text_field(form, "role", 32, False)
     if role not in ("", "main", "release", "feature", "other"):
-        raise HTTPException(400, "请选择有效分支角色")
+        raise FormError("role", "请选择有效分支角色")
     if len(form.getlist("manual_targets")) > 100:
-        raise HTTPException(400, "最多选择 100 个目标")
+        raise FormError("manual_targets", "最多选择 100 个目标")
 
-    def selected(value, allow_self=False):
+    def selected(value, field, allow_self=False):
         if not value:
             return None
-        target = get_or_404(session, Branch, number(value, 0, 2**31 - 1))
+        target = session.get(Branch, number(value, 0, 2**31 - 1))
+        if target is None:
+            raise FormError(field, "Not Found", status_code=404)
         if target.repository_id != branch.repository_id or (
             target.id == branch.id and not allow_self
         ):
-            raise HTTPException(400, "来源和目标必须是同仓库的其他分支")
+            raise FormError(field, "来源和目标必须是同仓库的其他分支")
         return target.id
 
-    source = selected(form.get("manual_source_branch_id"))
-    primary = selected(form.get("main_comparison_branch_id"), True)
-    targets = list(dict.fromkeys(selected(x) for x in form.getlist("manual_targets")))
+    source = selected(form.get("manual_source_branch_id"), "manual_source_branch_id")
+    primary = selected(form.get("main_comparison_branch_id"), "main_comparison_branch_id", True)
+    targets = list(dict.fromkeys(selected(x, "manual_targets") for x in form.getlist("manual_targets")))
     repo = locked_repository(session, branch.repository_id)
     config = branch.config or BranchConfig(branch_id=branch.id)
     config.role, config.manual_source_branch_id, config.main_comparison_branch_id = (
@@ -798,7 +891,7 @@ def branch_config(
     )
     config.manual_targets, config.active_release = targets, "active_release" in form
     if config.active_release and branch_role(repo, branch, config) != "release":
-        raise HTTPException(400, "只有发布角色的分支可以设为活跃 release")
+        raise FormError("active_release", "只有发布角色的分支可以设为活跃 release")
     config.updated_by_id, config.updated_at = user.id, utc_now()
     session.add(config)
     audit(

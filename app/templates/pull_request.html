@@ -1,8 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
   <p class="eyebrow">
-    <a href="/repositories/{{ repo.id }}">{{ repo.full_name }}</a> {{ t('/ 平台记录') }}
+    <a href="/repositories/{{ repo.id }}{{ query_url() }}">{{ repo.full_name }}</a> {{ t('/ 平台记录') }}
   </p>
+  {% if project_return_url %}<a class="project-return" href="{{ project_return_url }}">{{ t('返回项目') }} · {{ project_return_name }}</a>{% endif %}
   <h1>{{ pr.title }}</h1>
   <section class="panel detail-section">
     <span class="badge">{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state, t('未确认')) }}</span>

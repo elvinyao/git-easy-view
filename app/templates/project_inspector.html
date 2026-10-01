@@ -1,0 +1,57 @@
+{% from 'git_icons.html' import icon %}
+<div class="project-inspector-content" data-detail="{{ detail_tab }}" data-branch-id="{{ view.branch.id }}">
+  <header class="project-inspector-heading">
+    <p class="eyebrow">{{ repo.full_name }} · {{ t('只读快照') }}</p>
+    <h2 class="project-inspector-title">{{ selected_commit.subject if detail_tab == 'commit' and selected_commit else view.branch.name }}</h2>
+    <p><span class="git-ref-label role-{{ view.role }}">{{ roles[view.role] }}</span> <span class="wrap-ref">{{ view.branch.name }}</span></p>
+    {% if project_return_url %}<a class="project-return" href="{{ project_return_url }}">{{ t('返回项目') }} · {{ project_return_name }}</a>{% endif %}
+  </header>
+  {% if history_error %}<p class="notice" role="status">{{ t(history_error) }}</p>{% endif %}
+  {% if empty_message %}<p class="notice" role="status">{{ t(empty_message) }}</p>{% endif %}
+  {% if selected_commit %}
+  <section class="git-commit-details">
+    {% if detail_tab == 'branch' %}<h3>{{ selected_commit.subject }}</h3>{% endif %}
+    <dl class="git-commit-metadata">
+      <dt>{{ t('作者') }}</dt><dd>{{ selected_commit.author_name }}</dd>
+      <dt>{{ t('日期') }}</dt><dd>{{ selected_commit.authored_at|date }}</dd>
+      <dt>Hash</dt><dd class="git-oid"><code>{{ selected_commit.oid }}</code><button class="git-icon-button" type="button" data-copy="{{ selected_commit.oid }}" aria-label="{{ t('复制提交哈希') }}" title="{{ t('复制提交哈希') }}">{{ icon('copy') }}</button></dd>
+    </dl>
+  </section>
+  {% elif not history_error %}<p class="git-evidence-note">{{ t('没有可显示的提交') }}</p>{% endif %}
+  <section class="git-evidence-section">
+    <h3>{{ t('比较对象') }}</h3><strong class="git-target-name">{{ view.primary.name if view.primary else t('比较对象未知') }}</strong>
+    {% with target=view.primary %}{% include 'target_identity.html' %}{% endwith %}
+    <p class="git-evidence-note">{{ t(view.primary_reason) }}</p>
+    <span class="git-state-label state-{{ view.state }}">{{ states.get(view.state, t('未分析')) }}</span>
+    <div class="git-comparison-counts">
+      <div><strong>{{ view.comparison.ahead if view.comparison and view.comparison.ahead is not none else '—' }}</strong><span>↑ {{ t('领先') }}</span></div>
+      <div><strong>{{ view.comparison.behind if view.comparison and view.comparison.behind is not none else '—' }}</strong><span>↓ {{ t('落后') }}</span></div>
+    </div>
+  </section>
+  <section class="git-evidence-section"><h3>{{ t('来源证据') }}</h3>
+    {% for source in view.sources %}<p class="git-evidence-reference"><code>{{ source.name }}</code><span>{{ t('人工指定') if source.kind == 'manual' else t('推测') }}</span></p>{% if source.deleted %}<p class="git-evidence-note">{{ t('来源分支当前不存在') }}</p>{% endif %}
+    {% else %}<p class="git-evidence-note">{{ t('无法判断，暂无来源证据。') }}</p>{% endfor %}
+  </section>
+  <section class="git-evidence-section"><h3>{{ t('计划合入目标') }}</h3>
+    {% for plan in view.plans %}<p class="git-evidence-reference"><code>{{ plan.target.name }}</code><span>{{ t('人工指定') if plan.kind == 'manual' else t('开放 PR/MR') }}</span></p>{% with target=plan.target %}{% include 'target_identity.html' %}{% endwith %}
+    {% else %}<p class="git-evidence-note">{{ t('无计划目标') }}</p>{% endfor %}
+    <p class="git-evidence-note">{{ t('默认与主干比较不会自动生成计划目标。') }}</p>
+  </section>
+  <section class="git-evidence-section"><h3>PR / MR</h3>
+    {% for pr in view.prs %}<a class="git-pr-link" href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}{{ query_url() }}"><span>{{ pr.title }}</span><span>{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state, t('未确认')) }} ↗</span></a>
+    {% else %}<p class="git-evidence-note">{{ t('当前已获取数据中没有记录，是否曾合并未确认。') }}</p>{% endfor %}
+  </section>
+  {% if selected_commit %}
+  <section class="git-evidence-section">
+    <div class="git-files-heading"><h3>{{ icon('folder') }} {{ t('变更文件') }}</h3><span class="git-count">{{ file_total if not files_error else '—' }}</span></div>
+    {% if selected_commit.parent_oids|length > 1 %}<p class="git-file-note">{{ t('合并提交的文件变更与第一个父提交比较。') }}</p>{% endif %}
+    {% if files_error %}<p class="git-file-note">{{ t(files_error) }}</p>
+    {% else %}<ul class="git-file-list">{% for change in file_changes %}<li title="{{ change.path }}">{{ icon('file') }}<span>{{ change.path }}</span><span class="git-file-status status-{{ change.status }}">{{ change.status }}</span></li>{% else %}<li class="git-files-empty">{{ t('此提交没有文件变更。') }}</li>{% endfor %}</ul>{% endif %}
+    {% if file_total > 200 %}<p class="git-file-note">{{ t('显示前 {count} 个变更文件', count=200) }}</p>{% endif %}
+  </section>
+  {% endif %}
+  <footer class="project-inspector-actions">
+    <a class="git-detail-link" href="/repositories/{{ repo.id }}/branches/{{ view.branch.id }}{{ query_url() }}">{{ t('打开完整分支证据') }} ↗</a>
+    <a class="git-detail-link" href="/repositories/{{ repo.id }}/branches{{ workspace_url() }}">{{ t('打开 Git 工作区') }} ↗</a>
+  </footer>
+</div>

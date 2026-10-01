@@ -2123,9 +2123,38 @@ td small {
         max-width: 50%
     }
 
-    .git-statusbar>span:nth-child(2) {
-        display: none
+    .git-statusbar {
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        font-size: 12px;
+        padding: 9px 12px
     }
+
+    .git-statusbar>span:nth-child(2) {
+        display: block;
+        flex-basis: 100%;
+        overflow-wrap: anywhere
+    }
+}
+
+.job-progress { margin: 18px 0; padding: 18px; }
+.job-progress h2 { font-size: 18px; margin: 0 0 10px; }
+.job-progress-list > li { display: flex; flex-wrap: wrap; gap: 10px 20px; padding: 12px; border-left: 3px solid #a9c2d4; }
+.job-progress-list > li > div:first-child { flex: 1; min-width: 0; }
+.job-progress-list a { overflow-wrap: anywhere; }
+.job-progress-list strong { display: inline-block; margin-left: 10px; font-size: 13px; }
+.job-progress-list .help { margin: 5px 0 0; font-size: 13px; }
+.job-progress-recovery { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+[data-progress-job][data-state="failed"], [data-progress-job][data-state="auth_failed"] { border-left-color: #b57732; }
+[data-progress-job][data-state="succeeded"] { border-left-color: #2b8065; }
+@media (max-width: 700px) {
+    .page-heading { flex-wrap: wrap; gap: 12px; }
+    .page-heading > div { min-width: 0; }
+    .page-heading h1 { overflow-wrap: anywhere; }
+    .sidebar-footer.authenticated { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0 0; margin-top: 12px; }
+    .sidebar-footer.authenticated strong { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+    .sidebar-footer.authenticated form { margin-left: auto; }
+    .sidebar-footer.authenticated button { padding: 6px; }
 }
 
 /* Project: align repository tips so several repositories can be scanned together. */

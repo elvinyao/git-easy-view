@@ -33,7 +33,7 @@
       </tbody>
     </table>
     {% else %}
-      <div class="git-log-empty">{{ icon('commit') }}<h3>{{ t('提交历史暂不可用') if history_error else t('没有可显示的提交') }}</h3><p>{{ t(history_error) if history_error else t('选择其他分支或调整筛选条件。') }}</p></div>
+      <div class="git-log-empty">{{ icon('commit') }}<h3>{{ t('提交历史暂不可用') if history_error else t('没有可显示的提交') }}</h3><p>{{ t(history_error) if history_error else t(empty_message) if empty_message else t('选择其他分支或调整筛选条件。') }}</p></div>
     {% endif %}
   </div>
   <div class="git-log-footer"><span>{{ t('最多显示最近 {count} 个提交', count=100) }}</span><span>{{ t('按提交拓扑排序') }}</span></div>
@@ -44,6 +44,7 @@
     <button type="button" id="git-branch-tab" role="tab" data-git-tab="branch" aria-controls="git-branch-details" aria-selected="{{ 'true' if detail_tab == 'branch' else 'false' }}" tabindex="{{ '0' if detail_tab == 'branch' else '-1' }}">{{ t('分支关系') }}</button>
   </div>
   <div class="git-inspector-scroll">
+    {% if project_return_url %}<a class="project-return" href="{{ project_return_url }}">{{ t('返回项目') }} · {{ project_return_name }}</a>{% endif %}
     <section id="git-commit-details" role="tabpanel" aria-labelledby="git-commit-tab" {% if detail_tab != 'commit' %}hidden{% endif %}>
       {% if selected_commit %}
         <div class="git-commit-details">
@@ -71,9 +72,9 @@
           </section>
           <section class="git-evidence-section"><h3>{{ t('来源证据') }}</h3>{% for source in view.sources %}<p class="git-evidence-reference"><code>{{ source.name }}</code><span>{{ t('人工指定') if source.kind == 'manual' else t('推测') }}</span></p>{% else %}<p class="git-evidence-note">{{ t('无法判断，暂无来源证据。') }}</p>{% endfor %}</section>
           <section class="git-evidence-section"><h3>{{ t('计划合入目标') }}</h3>{% for plan in view.plans %}<p class="git-evidence-reference"><code>{{ plan.target.name }}</code><span>{{ t('人工指定') if plan.kind == 'manual' else t('开放 PR/MR') }}</span></p>{% with target=plan.target %}{% include 'target_identity.html' %}{% endwith %}{% else %}<p class="git-evidence-note">{{ t('无计划目标') }}</p>{% endfor %}</section>
-          <section class="git-evidence-section"><h3>PR / MR</h3>{% for pr in view.prs %}<a class="git-pr-link" href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}"><span>{{ pr.title }}</span><span>{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state, t('未确认')) }} ↗</span></a>{% else %}<p class="git-evidence-note">{{ t('未确认') }}</p>{% endfor %}</section>
+          <section class="git-evidence-section"><h3>PR / MR</h3>{% for pr in view.prs %}<a class="git-pr-link" href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}{{ query_url() }}"><span>{{ pr.title }}</span><span>{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state, t('未确认')) }} ↗</span></a>{% else %}<p class="git-evidence-note">{{ t('未确认') }}</p>{% endfor %}</section>
           <p class="git-evidence-note">{{ t('Git 不记录永久父分支。共同祖先说明历史关系，不能证明创建来源。') }}</p>
-          <a class="git-detail-link" href="/repositories/{{ repo.id }}/branches/{{ view.branch.id }}">{{ t('打开完整分支证据') }} ↗</a>
+          <a class="git-detail-link" href="/repositories/{{ repo.id }}/branches/{{ view.branch.id }}{{ query_url() }}">{{ t('打开完整分支证据') }} ↗</a>
           {% if user and user.is_admin %}<a class="git-detail-link" href="/admin/branches/{{ view.branch.id }}">{{ t('编辑分支配置') }} ↗</a>{% endif %}
         </div>
       {% else %}<div class="git-inspector-empty">{{ icon('branch') }}<p>{{ t('选择一个分支，查看比较对象、来源和 PR / MR 证据。') }}</p></div>{% endif %}

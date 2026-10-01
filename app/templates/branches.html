@@ -18,7 +18,7 @@
         {% for view in views %}
           <tr data-branch-id="{{ view.branch.id }}">
             <td class="branch-name">
-              <a href="/repositories/{{ repo.id }}/branches/{{ view.branch.id }}">{{ view.branch.name }}</a><small><span class="badge">{{ roles.get(view.role, view.role) }}</span>
+              <a href="/repositories/{{ repo.id }}/branches/{{ view.branch.id }}{{ query_url() }}">{{ view.branch.name }}</a><small><span class="badge">{{ roles.get(view.role, view.role) }}</span>
               {% if view.config and view.config.active_release %}<span class="badge teal">{{ t('活跃发布') }}</span>{% endif %}
             </small>
           </td>
@@ -59,7 +59,7 @@
           <td>
             {% for pr in view.prs[:3] %}
               <a class="small-link"
-                 href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}">{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state, t('未确认')) }}</a>
+                 href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}{{ query_url() }}">{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state, t('未确认')) }}</a>
             {% else %}
               <span class="muted">{{ t('未确认') }}</span>
             {% endfor %}
@@ -72,7 +72,7 @@
         <tr>
           <td colspan="6" class="empty">
             {% if not repo.git_synced_at %}
-              {{ t('正在导入，尚无分支快照。') }}
+              {{ t('首次同步失败，尚无可用快照。') if repo.sync_error else t('正在等待首次同步，分支和提交将在同步完成后显示。') }}
             {% elif query.q or query.role or query.relation %}
               {{ t('没有符合筛选条件的分支。') }}
             {% else %}

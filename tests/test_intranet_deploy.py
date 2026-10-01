@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "deploy"))
 try:
     spec.loader.exec_module(setup)
     import trust
+    import entrypoint
 finally:
     sys.path.pop(0)
 
@@ -129,6 +130,81 @@ def test_proxy_passwords_remain_literal_and_python_indexes_only_reach_build(depl
     assert build["PIP_EXTRA_INDEX_URL"] == "https://extra.internal/simple"
     assert not any(key.startswith("PIP_") for key in runtime)
     assert proxy not in capsys.readouterr().out
+
+
+def test_merged_compose_environment_preserves_application_values_and_control_precedence(deployment_directory):
+    from dotenv import dotenv_values
+
+    controls = setup.prepare(options("--init"))
+    application = Path("runtime/local.env")
+    secret = "a-long-session-secret-with-$literal-backslash\\and'quote"
+    values = setup.base.read_env(application)
+    values["GEV_SESSION_SECRET"] = secret
+    values["GEV_BIND_ADDRESS"] = "192.0.2.10"
+    application.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+    original = application.read_bytes()
+    controls = setup.prepare(options())
+
+    merged = Path("runtime/local.deploy/compose.env")
+    parsed = dotenv_values(merged)
+    assert parsed == {**values, **controls}
+    assert parsed["GEV_SESSION_SECRET"] == secret
+    assert parsed["GEV_BIND_ADDRESS"] == "127.0.0.1"
+    assert merged.stat().st_mode & 0o777 == 0o600
+    assert application.read_bytes() == original
+
+
+def test_legacy_entrypoint_reads_literal_runtime_proxy_without_build_indexes(deployment_directory, monkeypatch):
+    controls = setup.prepare(options("--init"))
+    proxy = "http://person:p%40ss$literal%25@proxy.internal:8080"
+    Path(controls["GEV_NETWORK_FILE"]).write_text(
+        f"HTTP_PROXY={proxy}\nHTTPS_PROXY={proxy}\nPIP_INDEX_URL=https://packages.internal/simple\n"
+    )
+    setup.prepare(options())
+    monkeypatch.setenv("GEV_RUNTIME_NETWORK_FILE", controls["GEV_RUNTIME_NETWORK"])
+    monkeypatch.setenv("HTTP_PROXY", "http://old-proxy.invalid")
+    assert entrypoint.runtime_environment() == literal_values(controls["GEV_RUNTIME_NETWORK"])
+    assert entrypoint.runtime_environment()["HTTP_PROXY"] == proxy
+    assert "PIP_INDEX_URL" not in entrypoint.runtime_environment()
+
+
+def test_modern_entrypoint_does_not_load_a_runtime_network_file(monkeypatch):
+    monkeypatch.delenv("GEV_RUNTIME_NETWORK_FILE", raising=False)
+    assert entrypoint.runtime_environment() == {}
+
+
+@pytest.mark.parametrize("content", [
+    "PIP_INDEX_URL=https://SECRET_PROBE@packages.internal/simple\n",
+    "GEV_DATABASE_URL=SECRET_PROBE\n",
+    "HTTP_PROXY=http://SECRET_PROBE@proxy\nHTTP_PROXY=http://duplicate\n",
+    "export HTTP_PROXY=http://SECRET_PROBE@proxy\n",
+    "SECRET_PROBE\n",
+])
+def test_legacy_entrypoint_rejects_invalid_network_files_without_echoing_secrets(tmp_path, monkeypatch, content):
+    network = tmp_path / "network.env"
+    network.write_text(content)
+    monkeypatch.setenv("GEV_RUNTIME_NETWORK_FILE", str(network))
+    with pytest.raises(ValueError, match="runtime network") as error:
+        entrypoint.runtime_environment()
+    assert "SECRET_PROBE" not in str(error.value)
+
+
+def test_legacy_entrypoint_applies_proxy_and_trust_before_exec(tmp_path, monkeypatch):
+    network = tmp_path / "network.env"
+    proxy = "http://person:p$literal@proxy.internal"
+    network.write_text(f"HTTP_PROXY={proxy}\nALL_PROXY=\n")
+    monkeypatch.setenv("GEV_RUNTIME_NETWORK_FILE", str(network))
+    monkeypatch.setenv("HTTP_PROXY", "http://old-proxy.invalid")
+    monkeypatch.setattr(entrypoint, "corporate_pem", lambda path: "test CA")
+    monkeypatch.setattr(entrypoint, "combined_bundle", lambda contents: "/tmp/test-ca.pem")
+    monkeypatch.setattr(sys, "argv", ["entrypoint.py", "python", "-m", "app.server"])
+    calls = []
+    monkeypatch.setattr(os, "execvpe", lambda *args: calls.append(args))
+    entrypoint.main()
+    command, arguments, environment = calls[0]
+    assert command == "python" and arguments == ["python", "-m", "app.server"]
+    assert environment["HTTP_PROXY"] == proxy and environment["ALL_PROXY"] == ""
+    assert environment["SSL_CERT_FILE"] == environment["GIT_PROXY_SSL_CAINFO"] == "/tmp/test-ca.pem"
 
 
 def test_custom_ca_mapping_and_bind_address_survive_redeployment(deployment_directory, certificate):
@@ -246,6 +322,9 @@ import json, os, sys
 args = sys.argv[1:]
 with open(os.environ['DEPLOY_CALLS'], 'a') as file:
     file.write(json.dumps(args) + '\\n')
+if args == ['compose', 'version', '--short']:
+    print('2.35.1')
+    sys.exit(0)
 if args[0] == 'compose':
     command = args[9:]
     failure = os.environ.get('DEPLOY_FAIL')
@@ -276,11 +355,11 @@ if args[0] == 'compose':
                 "GEV_PROJECT_ROOT": "/example/project with spaces", "DEPLOY_CALLS": str(calls), "DEPLOY_FAIL": failure,
             }
             result = subprocess.run(
-                ["sh", str(ROOT / "deploy/deploy.sh"), "--env-file", env_file, *arguments],
+                ["sh", str(ROOT / "deploy/internal-deploy.sh"), "--env-file", env_file, *arguments],
                 cwd=ROOT, env=environment, capture_output=True, text=True,
             )
             raw = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
-            rows = [row for row in raw if row[0] == "compose"]
+            rows = [row for row in raw if row[:2] == ["compose", "--project-directory"]]
             assert all(row[1:9] == [
                 "--project-directory", "/example/project with spaces", "-f", "/example/project with spaces/deploy/compose.yaml",
                 "--env-file", f"/workspace/{env_file}", "--env-file", f"/workspace/{control.relative_to(ROOT).as_posix()}",

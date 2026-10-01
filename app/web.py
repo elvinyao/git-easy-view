@@ -1,8 +1,9 @@
 """Shared server-rendered view helpers; no network calls on dashboard reads."""
 
 from dataclasses import dataclass
+import re
 from types import SimpleNamespace
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import unquote, urlencode, urlsplit
 
 from fastapi import HTTPException, Request
 from jinja2 import pass_context
@@ -11,11 +12,13 @@ from sqlalchemy.orm import selectinload
 
 from app.auth import session_data, verify_csrf
 from app.i18n import create_templates, translate
+from app.git_service import ComparisonResult
 from app.models import (
     Branch,
     Comparison,
     PlatformConnection,
     Project,
+    ProjectRepository,
     PullRequest,
     utc_now,
 )
@@ -84,15 +87,22 @@ def number(value, default=1, maximum=10000):
 
 def query_state(request):
     q = request.query_params
+    def repository_ids(key):
+        return {number(value, 0, 2**31 - 1) for value in q.get(key, "")[:1200].split(",")[:100]} - {0}
+
     expanded = {
         number(x, 0, 2**31 - 1) for x in q.get("expanded", "")[:1200].split(",")[:100]
     }
     return dict(
         q=q.get("q", "")[:200],
+        repo_q=q.get("repo_q", "")[:200],
+        attention=q.get("attention") == "1",
         role=q.get("role", "") if q.get("role") in ROLES else "",
         relation=q.get("relation", "") if q.get("relation") in STATES else "",
         page=number(q.get("page")),
         density="compact" if q.get("density") == "compact" else "full",
+        open_repos=repository_ids("open_repos"),
+        closed_repos=repository_ids("closed_repos"),
         expanded=expanded - {0},
         branch_pages={
             key: number(value)
@@ -104,18 +114,58 @@ def query_state(request):
 
 def query_url(request, **changes):
     state = query_state(request)
-    values = {k: state[k] for k in ("q", "role", "relation", "page")}
+    values = {k: state[k] for k in ("q", "repo_q", "role", "relation", "page")}
+    values["attention"] = "1" if state["attention"] else None
     values.update(state["branch_pages"])
     if "lang" in request.query_params:
         values["lang"] = request.state.locale
     if request.query_params.get("density") == "compact":
         values["density"] = "compact"
     values["expanded"] = ",".join(str(x) for x in sorted(state["expanded"]))
+    for key in ("open_repos", "closed_repos"):
+        values[key] = ",".join(str(x) for x in sorted(state[key]))
     target = number(request.query_params.get("target_id"), 0, 2**31 - 1)
     if target:
         values["target_id"] = target
+    values["return_to"] = getattr(
+        request.state, "project_return_url", safe_project_return(request.query_params.get("return_to"))
+    )
     values.update(changes)
+    values["return_to"] = safe_project_return(values.get("return_to"))
+    if "attention" in changes:
+        values["attention"] = "1" if changes["attention"] in (True, "1") else None
     return "?" + urlencode({k: v for k, v in values.items() if v not in ("", None)})
+
+
+def safe_project_return(value):
+    """Accept only a bounded project URL, without parser-normalized controls."""
+    if not isinstance(value, str) or len(value) > 4096:
+        return None
+    decoded = unquote(value)
+    if any(ord(char) < 32 or ord(char) == 127 for char in decoded) or "\\" in decoded:
+        return None
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return None
+    if parts.scheme or parts.netloc or not re.fullmatch(r"/projects/[1-9][0-9]{0,9}", parts.path):
+        return None
+    return value
+
+
+def project_return_context(request, session, repo):
+    value = safe_project_return(request.query_params.get("return_to"))
+    project = None
+    if value:
+        project = session.scalar(
+            select(Project).join(ProjectRepository).where(
+                Project.id == int(urlsplit(value).path.rsplit("/", 1)[1]),
+                ProjectRepository.repository_id == repo.id,
+            )
+        )
+    request.state.project_return_url = value if project else None
+    return dict(project_return_url=request.state.project_return_url,
+                project_return_name=project.name if project else None)
 
 
 def visible_projects(session, user):
@@ -226,6 +276,9 @@ def render(request, template, session, user, *, status_code=200, **context):
     if context.get("repo") is not None:
         repo = context["repo"]
         base["sync_status"] = repository_statuses(session, [repo])[repo.id]
+        base.update(project_return_context(request, session, repo))
+    else:
+        base.update(project_return_url=None, project_return_name=None)
     return templates.TemplateResponse(
         request, template, {**base, **context}, status_code=status_code
     )
@@ -241,6 +294,35 @@ def require_branch(session, repo, branch_id):
     if branch is None or branch.repository_id != repo.id:
         raise HTTPException(404)
     return branch
+
+
+def cached_comparison(cache, repo_id, source_oid, target_oid):
+    if source_oid and source_oid == target_oid:
+        return ComparisonResult(source_oid, target_oid, 0, 0, (source_oid,), "identical")
+    return cache.get((repo_id, source_oid, target_oid))
+
+
+def apply_target_override(session, repo, views, request):
+    """Override presentation only; manual and platform plans remain evidence."""
+    if "target_id" not in request.query_params:
+        return views
+    selected = number(request.query_params.get("target_id"), 0, 2**31 - 1)
+    target = require_branch(session, repo, selected)
+    if target.deleted or not target.head_oid:
+        raise HTTPException(400, "比较对象必须是当前分支")
+    comparisons = session.scalars(select(Comparison).where(
+        Comparison.repository_id == repo.id,
+        Comparison.source_oid.in_({v.branch.head_oid for v in views if not v.branch.deleted and v.branch.head_oid}),
+        Comparison.target_oid == target.head_oid,
+        Comparison.rule_version == 1,
+    )).all()
+    cache = {(c.repository_id, c.source_oid, c.target_oid): c for c in comparisons}
+    for view in views:
+        view.primary = view.refs[target.id]
+        view.primary_reason = "本次选择的比较对象"
+        view.comparison = cached_comparison(cache, repo.id, view.branch.head_oid, target.head_oid) if not view.branch.deleted else None
+        view.state = view.comparison.state if view.comparison else "missing"
+    return views
 
 
 def branch_views(session, repositories):
@@ -388,7 +470,7 @@ def branch_views(session, repositories):
                 primary = as_target(default_ref)
                 reason = "默认主干比较（不代表计划合入）"
             comparison = (
-                cache.get((rid, branch.head_oid, primary.oid))
+                cached_comparison(cache, rid, branch.head_oid, primary.oid)
                 if primary and primary.repository_id == rid and not branch.deleted
                 else None
             )
@@ -411,7 +493,7 @@ def branch_views(session, repositories):
                 (
                     t,
                     (
-                        cache.get((rid, branch.head_oid, t.oid))
+                        cached_comparison(cache, rid, branch.head_oid, t.oid)
                         if t.repository_id == rid and not branch.deleted
                         else None
                     ),

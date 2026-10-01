@@ -1,4 +1,5 @@
 import pytest
+from urllib.parse import parse_qs, urlsplit
 from sqlalchemy.orm import Session
 
 from app.models import AuditEvent, Branch, PlatformConnection, ProjectMember, ProjectRepository, PullRequest, Repository, SyncJob, User
@@ -91,7 +92,7 @@ def test_projects_allow_anonymous_reads(client, public_pages, path):
     response = client.get(path.format(**public_pages), follow_redirects=False)
     assert response.status_code == 200
     assert "匿名访问" in response.text
-    assert 'href="/login"' in response.text
+    assert 'href="/login?next=' in response.text
     assert 'class="language-picker"' not in response.text
     assert 'href="/admin' not in response.text
 
@@ -104,7 +105,7 @@ def test_projects_allow_anonymous_reads(client, public_pages, path):
 def test_anonymous_configuration_requires_login(client, public_pages, path):
     response = client.get(path.format(**public_pages), follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert parse_qs(urlsplit(response.headers["location"]).query)["next"] == [path.format(**public_pages)]
 
 
 @pytest.mark.parametrize("path", [
@@ -117,7 +118,15 @@ def test_anonymous_mutations_require_login_and_do_not_enqueue(app, client, publi
     csrf = csrf_from(client.get("/login"))  # Even a valid anonymous CSRF grants no write access.
     response = client.post(path.format(**public_pages), data={"csrf_token": csrf}, follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    destinations = {
+        "/admin/projects": "/admin", "/admin/users": "/admin/users/new",
+        "/admin/connections": "/admin/connections/new", "/admin/repositories/import": "/admin",
+        "/admin/connections/{connection}/check": "/admin/connections/{connection}",
+        "/admin/repositories/{repo}/sync": "/admin/repositories/{repo}",
+        "/admin/repositories/{repo}/projects": "/admin/repositories/{repo}",
+        "/repositories/{repo}/branches/{feature}/compare": "/repositories/{repo}/branches/{feature}",
+    }
+    assert parse_qs(urlsplit(response.headers["location"]).query)["next"] == [destinations.get(path, path).format(**public_pages)]
     with Session(app.state.engine) as s:
         assert s.query(SyncJob).count() == 1
         assert s.query(AuditEvent).count() == 0

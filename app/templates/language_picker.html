@@ -1,4 +1,5 @@
 <form method="get" action="/login" class="language-picker">
+  <input type="hidden" name="next" value="{{ next_url }}">
   <label>
     {{ t('语言') }}
     <select name="lang" aria-label="{{ t('语言') }}">

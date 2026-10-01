@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% import 'form_fields.html' as f with context %}
 {% block content %}
   <p class="eyebrow">
     <a href="/admin">{{ t('管理工作台') }}</a> {{ t('/ 用户') }}
@@ -12,7 +13,7 @@
       <label>
         {{ t('用户名') }}
         <input name="username"
-               value="{{ person.username if person else '' }}"
+               {{ f.attrs('username') }} value="{{ f.value('username', person.username if person else '') }}"
                required
                maxlength="150"
                autocomplete="off">
@@ -20,6 +21,7 @@
       <label>
         {{ t('新密码（留空保留原密码）') if person else t('密码') }}
         <input name="password"
+               {{ f.attrs('password') }}
                type="password"
                minlength="12"
                maxlength="1024"
@@ -31,14 +33,14 @@
         <label>
           <input type="checkbox"
                  name="is_admin"
-                 {% if person and person.is_admin %}checked{% endif %}>
+                 {{ f.attrs('is_admin') }} {{ f.checked('is_admin', person and person.is_admin) }}>
           {{ t('系统管理员') }}
         </label>
         {% if person %}
           <label>
             <input type="checkbox"
                    name="is_active"
-                   {% if person.is_active %}checked{% endif %}>
+                   {{ f.attrs('is_active') }} {{ f.checked('is_active', person.is_active) }}>
             {{ t('启用账号') }}
           </label>
         {% endif %}

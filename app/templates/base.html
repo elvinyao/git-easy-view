@@ -8,8 +8,11 @@
       {% block title %}{{ t('团队概览') }}{% endblock %}
     · Git Easy View</title>
     <link rel="stylesheet" href="/static/app.css">
+    {% if request.url.path.startswith('/admin') %}<link rel="stylesheet" href="/static/admin.css">{% endif %}
     <script type="application/json" id="i18n-messages">{{ client_messages|tojson }}</script>
     <script defer src="/static/vendor/jquery.min.js"></script><script defer src="/static/app.js"></script>
+    <script defer src="/static/admin.js"></script>
+    {% block extra_head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
     {% block navigation %}
@@ -28,10 +31,10 @@
           <p class="nav-label">{{ t('管理') }}</p>
           <a class="nav-link" href="/admin">{{ t('⚙ 管理工作台') }}</a>
         {% elif not user %}
-          <a class="nav-link mobile-login" href="/login">{{ t('管理员登录 ↗') }}</a>
+          <a class="nav-link mobile-login" href="/login?next={{ (request.url.path ~ ('?' ~ request.url.query if request.url.query else ''))|urlencode }}">{{ t('管理员登录 ↗') }}</a>
         {% endif %}
       </nav>
-      <div class="sidebar-footer">
+      <div class="sidebar-footer{% if user %} authenticated{% endif %}">
         {% if user %}
         <strong>{{ user.username }}</strong><small>{{ t('系统管理员') if user.is_admin else t('项目成员') }}</small>
         <form method="post" action="/logout">
@@ -40,13 +43,20 @@
         </form>
         {% else %}
         <strong>{{ t('匿名访问') }}</strong><small>{{ t('只读快照') }}</small>
-        <a class="quiet" href="/login">{{ t('管理员登录 ↗') }}</a>
+        <a class="quiet" href="/login?next={{ (request.url.path ~ ('?' ~ request.url.query if request.url.query else ''))|urlencode }}">{{ t('管理员登录 ↗') }}</a>
         {% endif %}
       </div>
     </aside>
     {% endblock %}
     <main class="main">
       {% if notice %}<div class="notice" role="status">{{ t(notice) }}</div>{% endif %}
+      {% if form_errors %}
+        <section class="notice danger" id="form-errors" role="alert" tabindex="-1" autofocus>
+          <h2>{{ t('请检查表单内容') }}</h2>
+          <ul>{% for field, error in form_errors.items() %}<li id="error-{{ field }}"><a href="#field-{{ field }}">{{ t(error) }}</a></li>{% endfor %}</ul>
+          <p>{{ t('已保留非敏感内容。密码和令牌请重新填写。') }}</p>
+        </section>
+      {% endif %}
       {% block content %}{% endblock %}
       <footer class="footer">
         {{ t('Git 提交历史与平台记录独立展示 · 所有时间为 UTC') }}

@@ -1,8 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
   <p class="eyebrow">
-    <a href="/repositories/{{ repo.id }}">{{ repo.full_name }}</a> {{ t('/ 平台证据') }}
+    <a href="/repositories/{{ repo.id }}{{ query_url() }}">{{ repo.full_name }}</a> {{ t('/ 平台证据') }}
   </p>
+  {% if project_return_url %}<a class="project-return" href="{{ project_return_url }}">{{ t('返回项目') }} · {{ project_return_name }}</a>{% endif %}
   <h1>{{ t('PR / MR 记录') }}</h1>
   {% include 'repo_status.html' %}
   <section class="panel">
@@ -20,7 +21,7 @@
           {% for pr in records %}
             <tr>
               <td>
-                <a href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}">{{ pr.title }}</a><small>{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state,t('未确认')) }}</small>
+                <a href="/repositories/{{ repo.id }}/pull-requests/{{ pr.id }}{{ query_url() }}">{{ pr.title }}</a><small>{{ {'open':t('开放'),'closed':t('已关闭'),'merged':t('历史已合并')}.get(pr.state,t('未确认')) }}</small>
               </td>
               <td>
                 {{ pr.source_external_repo_id or t('未知') }}<small>{{ pr.source_branch or t('未知') }}</small>

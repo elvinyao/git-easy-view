@@ -8,9 +8,12 @@
   </head>
   <body class="login-body">
     <main class="login-card">
-      <h1>{{ t('请检查表单内容') }}</h1>
+      <h1>{{ error_status if error_status else t('请检查表单内容') }}</h1>
       <p class="notice danger" role="alert">{{ message }}</p>
-      <p class="muted">{{ t('返回上一页修正后重新提交。密码和令牌不会回显。') }}</p>
+      {% if retry_url and error_status in (400, 409) %}<a class="button" href="{{ retry_url }}">{{ t('重试') }}</a>{% endif %}
+      {% if connection_url %}<a class="button" href="{{ connection_url }}">{{ t('检查连接') }}</a>{% endif %}
+      {% if error_status == 403 %}<a class="button" href="/login?next={{ retry_url|urlencode }}">{{ t('管理员登录 ↗') }}</a>{% endif %}
+      <a class="button" href="/">{{ t('返回项目概览') }}</a>
       <a class="button" href="/admin">{{ t('返回管理工作台') }}</a>
     </main>
   </body>

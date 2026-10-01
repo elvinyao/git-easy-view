@@ -7,11 +7,12 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.auth import current_user, session_data, set_session, verify_csrf
+from app.auth import current_user, login_destination, safe_next, session_data, set_session, verify_csrf
 from app.config import Settings
 from app.db import make_engine
 from app.i18n import (
@@ -89,15 +90,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if (
             request.method == "POST"
-            and exc.status_code in (400, 409, 422)
+            and (exc.status_code in (400, 409, 422) or isinstance(exc, admin.FormError))
             and "application/json" not in request.headers.get("accept", "")
         ):
+            recovered = await run_in_threadpool(admin.recover_form, request, exc)
+            if recovered is not None:
+                return recovered
             return templates.TemplateResponse(
                 request,
                 "form_error.html",
                 {"message": detail},
                 status_code=exc.status_code,
             )
+        if ("text/html" in request.headers.get("accept", "")
+                and "application/json" not in request.headers.get("accept", "")
+                and exc.status_code in (400, 403, 404, 409)):
+            message = detail
+            if exc.status_code == 403:
+                message = translate(request.state.locale, "此操作需要管理员权限或有效的安全令牌。请返回页面重试，或使用管理员账号登录。")
+            elif exc.status_code == 404:
+                message = translate(request.state.locale, "页面或记录不存在，可能已被移除。请从项目概览重新选择。")
+            return templates.TemplateResponse(request, "form_error.html", {
+                "message": message,
+                "error_status": exc.status_code,
+                "retry_url": login_destination(request),
+                "connection_url": f'/admin/connections/{int(request.path_params["connection_id"])}' if str(request.path_params.get("connection_id", "")).isascii() and str(request.path_params.get("connection_id", "")).isdecimal() else None,
+            }, status_code=exc.status_code)
         return await http_exception_handler(
             request,
             StarletteHTTPException(exc.status_code, detail=detail, headers=exc.headers),
@@ -122,22 +140,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             csrf = secrets.token_urlsafe(32)
         response = templates.TemplateResponse(
-            request, "login.html", {"csrf_token": csrf, "error": None}
+            request, "login.html", {"csrf_token": csrf, "error": None, "next_url": safe_next(request.query_params.get("next"))}
         )
         if not existing:
             set_session(response, request, None, csrf)
         return response
 
-    async def login_credentials(request: Request) -> tuple[str, str]:
+    async def login_credentials(request: Request) -> tuple[str, str, str]:
         await verify_csrf(request)
         form = await request.form()
-        return str(form.get("username", "")), str(form.get("password", ""))
+        return str(form.get("username", "")), str(form.get("password", "")), safe_next(form.get("next"))
 
     @app.post("/login")
     def login(
-        request: Request, credentials: tuple[str, str] = Depends(login_credentials)
+        request: Request, credentials: tuple[str, str, str] = Depends(login_credentials)
     ):
-        username, password = credentials
+        username, password, next_url = credentials
         with Session(app.state.engine) as session:
             user = session.scalar(select(User).where(User.username == username))
             if user is None or not user.is_active or not user.check_password(password):
@@ -147,11 +165,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     {
                         "csrf_token": session_data(request)["csrf"],
                         "error": "Invalid username or password",
+                        "next_url": next_url,
+                        "username": username,
                     },
                     status_code=401,
                 )
             user_id = user.id
-        response = RedirectResponse("/", status_code=303)
+        response = RedirectResponse(next_url, status_code=303)
         set_session(response, request, user_id)
         return response
 

@@ -7,17 +7,18 @@
 <div class="git-workspace" data-repository="{{ repo.id }}">
   <header class="git-header">
     <a class="git-home" href="/" aria-label="{{ t('项目概览') }}"><span class="brand-mark">g.</span></a>
-    <a class="git-back" href="/repositories/{{ repo.id }}" aria-label="{{ t('返回仓库概览') }}">{{ icon('back') }}</a>
+    <a class="git-back" href="/repositories/{{ repo.id }}{{ query_url() }}" aria-label="{{ t('返回仓库概览') }}">{{ icon('back') }}</a>
     <div class="git-repository-heading"><span class="git-header-caption">Git</span><h1>{{ repo.full_name }}</h1></div>
     <span class="git-readonly">{{ t('只读快照') }}</span>
     <div class="git-header-actions">
+      {% if project_return_url %}<a class="project-return" href="{{ project_return_url }}">{{ t('返回项目') }} · {{ project_return_name }}</a>{% endif %}
       <span class="git-user">{{ user.username if user else t('匿名访问') }}</span>
     </div>
   </header>
   <div class="git-toolbar">
     <nav class="git-tool-tabs" aria-label="{{ t('仓库视图') }}">
-      <a class="active" href="/repositories/{{ repo.id }}/branches" aria-current="page">{{ icon('commit') }} {{ t('提交历史') }}</a>
-      <a href="/repositories/{{ repo.id }}/pull-requests">PR / MR <span class="git-tab-arrow">↗</span></a>
+      <a class="active" href="/repositories/{{ repo.id }}/branches{{ workspace_url() }}" aria-current="page">{{ icon('commit') }} {{ t('提交历史') }}</a>
+      <a href="/repositories/{{ repo.id }}/pull-requests{{ query_url() }}">PR / MR <span class="git-tab-arrow">↗</span></a>
     </nav>
     <div class="git-toolbar-filters">
       <label>{{ t('分支角色') }}<select name="role" form="git-filters">
@@ -48,6 +49,10 @@
       </div>
       <form method="get" id="git-filters" class="git-branch-search">
         <input type="hidden" name="lang" value="{{ locale }}">
+        {% if project_return_url %}<input type="hidden" name="return_to" value="{{ project_return_url }}">{% endif %}
+        {% if request.query_params.get('target_id') %}<input type="hidden" name="target_id" value="{{ request.query_params.get('target_id') }}">{% endif %}
+        {% if query.repo_q %}<input type="hidden" name="repo_q" value="{{ query.repo_q }}">{% endif %}
+        {% if query.attention %}<input type="hidden" name="attention" value="1">{% endif %}
         {{ icon('search') }}
         <input type="search" name="q" value="{{ query.q }}" aria-label="{{ t('搜索分支') }}" placeholder="{{ t('搜索分支') }}" autocomplete="off">
         <button type="submit" class="git-icon-button" aria-label="{{ t('应用筛选') }}" title="{{ t('应用筛选') }}">{{ icon('arrow') }}</button>
@@ -69,7 +74,7 @@
           </details>
           {% endif %}
         {% endfor %}
-        {% if not views %}<p class="git-tree-empty">{{ t('没有符合筛选条件的分支。') if query.q or query.role or query.relation else t('空仓库：当前没有分支。') }}<a href="{{ workspace_url(q='', role='', relation='', page=1, branch_id=None, commit=None) }}">{{ t('重置') }}</a></p>{% endif %}
+        {% if not views %}<p class="git-tree-empty" data-empty-state="{{ empty_state or 'page' }}">{{ t(empty_message) if empty_message else t('没有符合筛选条件的分支。') }}{% if empty_state == 'filtered' or not empty_state %}<a href="{{ workspace_url(q='', role='', relation='', page=1, branch_id=None, commit=None) }}">{{ t('重置') }}</a>{% endif %}</p>{% endif %}
       </nav>
       <nav class="git-tree-pagination" aria-label="{{ t('分支分页') }}">
         <span>{{ t('第 {page} 页 · {total} 个分支', page=query.page, total=total) }}</span>

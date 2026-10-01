@@ -1,0 +1,51 @@
+# Docker Compose 1.29.2: the deploy helper builds with BuildKit secrets directly.
+# Runtime proxy values are read literally by the image entrypoint.
+x-app: &app
+  image: ${GEV_INTRANET_IMAGE:?Run bash deploy/deploy.sh first}
+  env_file: ${GEV_ENV_FILE:-./runtime/local.env}
+  extra_hosts: [host.docker.internal:host-gateway]
+  environment:
+    GEV_RUNTIME_NETWORK_FILE: /etc/gev/runtime-network.env
+    SSL_CERT_FILE: /tmp/gev-ca-bundle.pem
+    REQUESTS_CA_BUNDLE: /tmp/gev-ca-bundle.pem
+    PIP_CERT: /tmp/gev-ca-bundle.pem
+    CURL_CA_BUNDLE: /tmp/gev-ca-bundle.pem
+    GIT_SSL_CAINFO: /tmp/gev-ca-bundle.pem
+    GIT_PROXY_SSL_CAINFO: /tmp/gev-ca-bundle.pem
+  volumes:
+    - app-data:/data/db
+    - git-cache:/data/git
+    - ./${GEV_CA_DIR:?Run bash deploy/deploy.sh first}:/etc/gev/ca:ro
+    - ./${GEV_RUNTIME_NETWORK:?Run bash deploy/deploy.sh first}:/etc/gev/runtime-network.env:ro
+  restart: unless-stopped
+
+services:
+  web:
+    <<: *app
+    init: true
+    stop_grace_period: 30s
+    ports: ['${GEV_BIND_ADDRESS:-127.0.0.1}:${GEV_PORT:-8766}:8000']
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  migrate:
+    <<: *app
+    profiles: [tools]
+    command: [alembic, upgrade, head]
+    restart: 'no'
+  tools:
+    <<: *app
+    profiles: [tools]
+    volumes:
+      - .:/workspace
+      - app-data:/data/db
+      - git-cache:/data/git
+      - ./${GEV_CA_DIR:?Run bash deploy/deploy.sh first}:/etc/gev/ca:ro
+      - ./${GEV_RUNTIME_NETWORK:?Run bash deploy/deploy.sh first}:/etc/gev/runtime-network.env:ro
+    restart: 'no'
+
+volumes:
+  app-data:
+  git-cache:

@@ -2,11 +2,21 @@
 
 [ドキュメント一覧](../README.md) · [简体中文](../zh-CN/docker-deployment.md) · [English](../en/docker-deployment.md)
 
-依存取得や Git 接続に HTTP/HTTPS プロキシと社内 CA が必要な場合は、独立した [deploy/ 社内デプロイガイド](../../deploy/README.ja.md)を使用してください。入口は `bash .agent/run.sh deploy-intranet` で、専用 Dockerfile、設定準備、CA 信頼、運用手順を含みます。本ページの `deploy` は個人 PC の直接接続でも引き続き使えます。
+独立したデプロイには [deploy/ デプロイガイド](../../deploy/README.ja.md)を使用してください。入口は `bash deploy/deploy.sh`、初期設定は `--init`、運用は `bash deploy/deploy.sh compose ...` です。HTTP/HTTPS プロキシ、社内 CA、個人 PC の直接接続に対応し、`.agent/run.sh` を経由しません。本ページは開発 runner でのデプロイ、DB 移行、運用手順を説明します。
 
 ## 1. 必要環境と単一コンテナ構成
 
-Docker Desktop または Docker Engine を起動し、リポジトリのルートから実行します。ホストではソースの参照・編集だけを行い、実行には `bash .agent/run.sh ...` を使います。
+Docker Engine 20.10 以降（または対応する Docker Desktop）を起動し、BuildKit を有効にして、リポジトリのルートから実行します。ホストではソースの参照・編集だけを行い、実行には `bash .agent/run.sh ...` を使います。
+
+デプロイは `docker compose` と旧 `docker-compose`（最低 1.29.2）に対応します。既定では `docker:28-cli` ツールコンテナ内で Compose を実行し、ホスト側の Compose のインストールや更新は不要です。プラグインを優先し、なければ `docker-compose` を使います。旧版では互換設定と正常性のポーリングを自動的に使用します。社内ツールイメージが必要な場合、`docker`、`sh`、`awk`、`date` と上記 Compose を含むイメージを `GEV_DOCKER_CLI_IMAGE` に指定し、以後も同じ設定を使ってください。
+
+```bash
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash .agent/run.sh deploy
+```
+
+独立した入口 `bash deploy/deploy.sh` も同じ設定に対応します。詳細は[社内デプロイガイド](../../deploy/README.ja.md)を参照してください。個人 PC では既定のイメージを使えます。
+
+v1 での更新には `bash .agent/run.sh deploy` を使ってください。スクリプトは DB マイグレーション成功後に web コンテナを置き換え、SQLite と Git キャッシュの名前付きボリュームを保持します。旧 `docker-compose up` を直接呼ぶと、新しい Docker Engine では廃止された `ContainerConfig` フィールドが原因で失敗することがあります。
 
 常駐するのは **web コンテナ 1 個**です。Web、定期実行、バックグラウンドジョブ処理を含みます。SQLite にプロジェクト、ユーザー、ブランチ、ジョブを保存するため PostgreSQL と Redis は不要です。ジョブは順次実行し、その間も既存スナップショットを閲覧できます。子プロセスが終了するとコンテナを再起動し、未完了ジョブを DB から復旧します。
 
@@ -47,7 +57,7 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools
 
 長いランダムパスワードを使ってください。Web のアカウント管理では 12–1024 文字を要求します。本番は env パスを `runtime/production.env` に変更します。同名ユーザーがあればエラーとなり、パスワードを変更しません。再デプロイでユーザーを作り直す必要はありません。
 
-無人で初回作成する場合は、secret 管理システムで `runtime/admin-bootstrap.env`（0600、`GEV_ADMIN_PASSWORD=...`）を配置し、単発コンテナへ渡します。
+無人で初回作成する場合は、secret 管理システムで `runtime/admin-bootstrap.env`（0600、`GEV_ADMIN_PASSWORD=...`）を配置し、単発コンテナへ渡します。以下の `--env-from-file` の例は既定の新しい CLI イメージ用です。旧版 Compose のカスタムイメージでは、上記の対話入力を使ってください。
 
 ```bash
 bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T --env-from-file /workspace/runtime/admin-bootstrap.env tools python -m app.cli create-user --username your-admin --admin --password-env GEV_ADMIN_PASSWORD
@@ -159,7 +169,7 @@ bash .agent/run.sh compose --env-file runtime/production.env ps
 bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web
 bash .agent/run.sh compose --env-file runtime/production.env exec -T web alembic current
 bash .agent/run.sh compose --env-file runtime/production.env stop web
-bash .agent/run.sh compose --env-file runtime/production.env up -d --wait --wait-timeout 300 web
+bash .agent/run.sh deploy --production --no-build --wait-timeout 300
 ```
 
 `ps` の実行中サービスは web 1 個です。`ps -a` に表示される移行前の停止コンテナは実行リソースを消費しません。

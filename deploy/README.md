@@ -6,7 +6,18 @@
 
 ## 1. 先让 Docker 能拉取镜像
 
-需要 Docker Desktop 或 Docker Engine、Compose 2.30+ 和 BuildKit。runner 自带 Docker CLI / Compose 镜像。所有项目命令都从仓库根目录通过 `bash .agent/run.sh ...` 执行；`deploy/deploy.sh` 在 Docker CLI 容器内运行，不直接在宿主执行。
+需要 Docker Engine 20.10+（或对应的 Docker Desktop）和 BuildKit。从仓库根目录运行独立入口 `bash deploy/deploy.sh`；它在宿主只调用 Docker，配置生成、构建、迁移和应用命令均在容器内执行，无需宿主 Python 或 Node，也不依赖 `.agent/run.sh`。
+
+**兼容新版 `docker compose` 和旧版 `docker-compose`（最低 1.29.2）。** 默认使用 `docker:28-cli` 工具容器，宿主是否安装 Compose、安装什么版本都不影响部署。脚本优先选择工具容器里的 Compose 插件，没有插件时使用 `docker-compose`。旧版自动使用兼容配置与健康状态轮询，仍保留 BuildKit secret、代理值和 CA 配置，不增加常驻容器。
+
+使用 v1 更新时，部署脚本在数据库迁移成功后替换 web 容器，保留 SQLite 和 Git 缓存的命名卷。请通过 `bash deploy/deploy.sh` 更新；直接调用旧版 `docker-compose up` 在新 Docker Engine 上可能因已废弃的 `ContainerConfig` 字段而失败。
+
+内网已有工具镜像时，可指定 `GEV_DOCKER_CLI_IMAGE`；镜像必须包含 `docker`、`sh`、`awk`、`date`，以及上述任一 Compose 实现。将示例地址换成实际镜像，并在后续部署和运维命令中使用同一设置；个人电脑无需设置：
+
+```bash
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash deploy/deploy.sh
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash deploy/deploy.sh compose --env-file runtime/local.env ps
+```
 
 代理需要分两层配置：
 
@@ -15,7 +26,7 @@
 | Docker 本身 | Docker Desktop 设置，或 Engine 的 daemon 配置及主机信任库 | 拉取 Python、Docker CLI 和构建基础镜像 |
 | 镜像构建及应用 | 本指南的 `runtime/*.network.env` 和 CA 目录 | pip 下载依赖，以及运行时 Git/API 请求 |
 
-**必须先完成第一层。** 应用的配置文件无法修复尚未拉取成功的 runner 镜像。
+**必须先完成第一层。** 应用的配置文件无法修复尚未拉取成功的工具镜像。
 
 Docker Desktop：在 Settings 的 Proxies 中配置代理；将公司根证书加入主机信任库，然后重启 Desktop。Desktop 不读取 `daemon.json` 的代理配置。参见 [Desktop 代理设置](https://docs.docker.com/desktop/settings-and-maintenance/settings/#proxies) 和 [Docker CA 说明](https://docs.docker.com/engine/network/ca-certs/)。
 
@@ -34,7 +45,7 @@ Linux Docker Engine：由管理员将下面的代理字段合并到 `/etc/docker
 ## 2. 首次准备配置
 
 ```bash
-bash .agent/run.sh deploy-intranet --init
+bash deploy/deploy.sh --init
 ```
 
 该命令只准备文件，不构建或启动应用，也不创建数据库账号。已有应用配置和密钥会保留。
@@ -70,29 +81,23 @@ PIP_EXTRA_INDEX_URL=
 ## 3. 部署、更新和个人电脑兼容
 
 ```bash
-bash .agent/run.sh deploy-intranet
-bash .agent/run.sh deploy-intranet --no-build
-bash .agent/run.sh deploy-intranet --pull --wait-timeout 300
-bash .agent/run.sh deploy-intranet --help
+bash deploy/deploy.sh
+bash deploy/deploy.sh --no-build
+bash deploy/deploy.sh --pull --wait-timeout 300
+bash deploy/deploy.sh --help
 ```
 
 首次部署和源码更新用第一条；第二条复用已有内网镜像；第三条同时刷新构建基础镜像。脚本验证配置、构建、停止 web、迁移数据库、重新启动并等待健康检查。失败返回非零，保留配置和数据卷。默认访问 [http://127.0.0.1:8766](http://127.0.0.1:8766)。
 
 同一个 `COMPOSE_PROJECT_NAME` 使用原有 `app-data` 和 `git-cache` 卷，不复制或清空 SQLite。切换部署方式前备份现有实例；不要用两个部署流程并发操作同一项目。
 
-个人电脑原来的入口仍然可用：
-
-```bash
-bash .agent/run.sh deploy
-```
-
-也可以使用新入口并将代理留空、CA 目录留空。新入口使用独立的 `-intranet` 镜像标签，保留个人电脑原镜像；第一次使用必须构建，之后才能用 `--no-build`。切回原入口后，公司 CA 和代理的自动注入不再生效。新入口仅支持当前 SQLite 单容器模式；旧 PostgreSQL 实例先按[原部署指南](../docs/zh-CN/docker-deployment.md)完成 `--migrate-sqlite`，不要直接改数据库 URL。
+个人电脑也使用同一个 `bash deploy/deploy.sh`，将代理留空、CA 目录留空即可。脚本使用独立的 `-intranet` 镜像标签；第一次使用必须构建，之后才能用 `--no-build`。此入口支持当前 SQLite 单容器模式；旧 PostgreSQL 实例先按[数据库迁移指南](../docs/zh-CN/docker-deployment.md)完成 `--migrate-sqlite`，不要直接改数据库 URL。
 
 ## 4. 正式内网服务与独立实例
 
 ```bash
-bash .agent/run.sh deploy-intranet --production --init
-bash .agent/run.sh deploy-intranet --production --wait-timeout 300
+bash deploy/deploy.sh --production --init
+bash deploy/deploy.sh --production --wait-timeout 300
 ```
 
 在两条命令之间编辑 `runtime/production.network.env` 并安装 CA。生产默认使用独立的 `runtime/production.env`、Compose 项目和数据卷，后端端口为 8767。正式环境必须通过 HTTPS 反向代理访问，才能正常使用 Secure 登录 cookie；出站 `HTTPS_PROXY` 不会替用户浏览器提供 HTTPS。
@@ -100,7 +105,7 @@ bash .agent/run.sh deploy-intranet --production --wait-timeout 300
 默认仅监听 `127.0.0.1`，适合宿主上的反向代理。需要让其他主机的反向代理访问后端时，明确指定服务器的内网 IP，或以下所有接口地址，并由防火墙限制访问来源：
 
 ```bash
-bash .agent/run.sh deploy-intranet --production --bind-address 0.0.0.0 --no-build
+bash deploy/deploy.sh --production --bind-address 0.0.0.0 --no-build
 ```
 
 项目页面支持匿名读取；开放监听地址后，能连到该端口的人可以浏览项目。生产管理员仍应通过 HTTPS 登录。
@@ -108,8 +113,8 @@ bash .agent/run.sh deploy-intranet --production --bind-address 0.0.0.0 --no-buil
 独立测试实例可同时指定应用配置、网络配置、CA 目录、项目名和端口：
 
 ```bash
-bash .agent/run.sh deploy-intranet --env-file runtime/intranet-test.env --project-name gev-intranet-test --port 8772 --network-file runtime/intranet-test.network.env --ca-dir runtime/company-ca --init
-bash .agent/run.sh deploy-intranet --env-file runtime/intranet-test.env
+bash deploy/deploy.sh --env-file runtime/intranet-test.env --project-name gev-intranet-test --port 8772 --network-file runtime/intranet-test.network.env --ca-dir runtime/company-ca --init
+bash deploy/deploy.sh --env-file runtime/intranet-test.env
 ```
 
 自定义文件和目录应位于 `runtime/` 内。网络路径、CA 路径和监听地址会保存在对应的 `.deploy.env`，后续无需重复输入。已有 env 的端口和项目名不会被命令行静默改写；需要新实例时选择新的 env 和项目名。`--production` 部署在后续操作中也要继续带上 `--production`。
@@ -122,24 +127,24 @@ bash .agent/run.sh deploy-intranet --env-file runtime/intranet-test.env
 
 通常可以将管理界面中的连接 CA 路径留空，使用这套默认信任。若填写连接专属 CA 路径，它会覆盖该连接的 Git / API 信任，因此应包含连接所需的完整 CA 链；也可以填写 `/tmp/gev-ca-bundle.pem` 使用合并后的信任。
 
-代理凭据虽然不写进镜像，仍可被拥有 Docker 管理权限的人读取运行容器的环境。按公司凭据管理规范保护主机与 `runtime/`。更换网络配置或 CA 后重新运行 `deploy-intranet`；只更新运行时配置且已有镜像时可用 `--no-build`。
+代理凭据虽然不写进镜像，仍可被拥有 Docker 管理权限的人读取运行容器的环境。按公司凭据管理规范保护主机与 `runtime/`。更换网络配置或 CA 后重新运行 `bash deploy/deploy.sh`；只更新运行时配置且已有镜像时可用 `--no-build`。
 
 ## 6. 管理、备份与排错
 
-此部署使用独立 Compose 文件，日常操作使用 `intranet-compose`，它会读取该实例保存的部署配置：
+日常操作使用同一脚本的 `compose` 子命令，自动选择独立 Compose 文件并读取该实例保存的部署配置：
 
 ```bash
-bash .agent/run.sh intranet-compose --env-file runtime/local.env ps
-bash .agent/run.sh intranet-compose --env-file runtime/local.env logs --tail=100 web
-bash .agent/run.sh intranet-compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username your-admin --admin
-bash .agent/run.sh intranet-compose --env-file runtime/local.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/intranet-before-update --env-file runtime/local.env
+bash deploy/deploy.sh compose --env-file runtime/local.env ps
+bash deploy/deploy.sh compose --env-file runtime/local.env logs --tail=100 web
+bash deploy/deploy.sh compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username your-admin --admin
+bash deploy/deploy.sh compose --env-file runtime/local.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/intranet-before-update --env-file runtime/local.env
 ```
 
-管理员密码交互输入。生产实例把命令中的 env 路径改为 `runtime/production.env`。备份另用新的目录名；除数据库及配套应用密钥外，也需安全保存网络文件、部署选项与 CA。恢复数据库流程见[运维指南](../docs/zh-CN/docker-deployment.md)，对应 Compose 命令改用 `intranet-compose`，重启用 `deploy-intranet`。不要执行 `down -v`。
+管理员密码交互输入。生产实例把命令中的 env 路径改为 `runtime/production.env`。备份另用新的目录名；除数据库及配套应用密钥外，也需安全保存网络文件、部署选项与 CA。恢复数据库流程见[运维指南](../docs/zh-CN/docker-deployment.md)，对应 Compose 命令以 `bash deploy/deploy.sh compose` 开头，重启用 `bash deploy/deploy.sh --no-build`。不要执行 `down -v`。
 
 | 现象 | 检查位置 |
 |---|---|
-| runner 或基础镜像拉取失败 | Docker Desktop / daemon 的代理和系统信任，尚未进入应用部署阶段 |
+| 工具或基础镜像拉取失败 | Docker Desktop / daemon 的代理和系统信任，尚未进入应用部署阶段 |
 | pip 超时、407 或证书失败 | 网络文件中的代理、认证、pip 源，以及构建使用的公司 CA |
 | 页面可用但 Git 同步失败 | 应用日志、代理可达性、`NO_PROXY`、token 权限和连接 CA 路径 |
 | 更新 CA 后仍失败 | 重新部署以生成新证书包；检查是否有连接专属 CA 覆盖默认配置 |

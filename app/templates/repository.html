@@ -4,6 +4,7 @@
   <header class="page-heading">
     <div>
       <p class="eyebrow">{{ t('REPOSITORY / 仓库') }}</p>
+      {% if project_return_url %}<a class="project-return" href="{{ project_return_url }}">{{ t('返回项目') }} · {{ project_return_name }}</a>{% endif %}
       <h1>{{ repo.full_name }}</h1>
       <p class="muted">{{ repo.connection.name }} {{ t('· 默认分支') }} {{ repo.default_branch or t('未知') }}</p>
     </div>
@@ -18,7 +19,7 @@
     </div>
   </div>
   <nav class="admin-tabs">
-    <span>{{ t('分支与提交关系') }}</span><a href="/repositories/{{ repo.id }}/pull-requests">{{ t('PR / MR 平台记录 →') }}</a>
+    <span>{{ t('分支与提交关系') }}</span><a href="/repositories/{{ repo.id }}/pull-requests{{ query_url() }}">{{ t('PR / MR 平台记录 →') }}</a>
   </nav>
   {% include 'filters.html' %}
   <section class="panel">
@@ -27,7 +28,7 @@
          data-auto="true"
          data-page="{{ query.page }}">
       <p class="empty">
-        {{ t('正在加载分支…') }} <a href="/repositories/{{ repo.id }}/branches">{{ t('打开分支列表') }}</a>
+        {{ t('正在加载分支…') }} <a href="/repositories/{{ repo.id }}/branches{{ query_url() }}">{{ t('打开分支列表') }}</a>
       </p>
     </div>
   </section>

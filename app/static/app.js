@@ -64,7 +64,7 @@
           $(this).toggleClass('selected', selected).attr('aria-current', String(selected));
           // Keep branch and commit links rooted in the current filter/page state.
           const target = new URL(this.href);
-          for (const key of ['q', 'role', 'relation', 'page', 'lang']) {
+          for (const key of ['q', 'role', 'relation', 'page', 'lang', 'return_to', 'target_id', 'repo_q', 'attention']) {
             if (url.searchParams.has(key)) target.searchParams.set(key, url.searchParams.get(key)); else target.searchParams.delete(key);
           }
           this.href = target.toString();

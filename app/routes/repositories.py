@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -8,9 +8,11 @@ from app.db import get_session
 from app.git_service import GitError
 from app.git_workspace import workspace_context
 from app.jobs import enqueue_comparison
+from app.job_progress import progress_batch
 from app.models import AuditEvent, PullRequest, SyncJob, User
 from app.sync import RepositoryBusy, read_unique_commits
 from app.web import (
+    apply_target_override,
     branch_views,
     filtered,
     form_data,
@@ -44,15 +46,17 @@ def branches(
 ):
     repo = require_repository_access(session, user, repository_id)
     query = query_state(request)
-    views = filtered(branch_views(session, [repo])[repo.id], query)
+    all_views = apply_target_override(session, repo, branch_views(session, [repo])[repo.id], request)
+    views = filtered(all_views, query)
+    total_branches = sum(not view.branch.deleted for view in all_views)
     page = query["page"]
     if request.url.path.endswith("/log"):
-        return render(request, "git_log.html", session, user, repo=repo, **workspace_context(request, repo, views))
+        return render(request, "git_log.html", session, user, repo=repo, **workspace_context(request, repo, views, total_branches=total_branches))
     if request.query_params.get("fragment") != "1":
         return render(
             request, "git_workspace.html", session, user, repo=repo,
             views=views[(page - 1) * 50 : page * 50], total=len(views),
-            **workspace_context(request, repo, views),
+            **workspace_context(request, repo, views, total_branches=total_branches),
         )
     return render(
         request,
@@ -77,32 +81,10 @@ def branch_detail(
     repo = require_repository_access(session, user, repository_id)
     branch = require_branch(session, repo, branch_id)
     view = next(
-        v for v in branch_views(session, [repo])[repo.id] if v.branch.id == branch.id
+        v for v in apply_target_override(session, repo, branch_views(session, [repo])[repo.id], request) if v.branch.id == branch.id
     )
-    selected = number(request.query_params.get("target_id"), 0, 2**31 - 1)
-    if selected:
-        target = require_branch(session, repo, selected)
-        if target.deleted or not target.head_oid:
-            raise HTTPException(400, "比较对象必须是当前分支")
-        from app.models import Comparison
-
-        view.comparison = (
-            session.scalar(
-                select(Comparison).where(
-                    Comparison.repository_id == repo.id,
-                    Comparison.source_oid == branch.head_oid,
-                    Comparison.target_oid == target.head_oid,
-                    Comparison.rule_version == 1,
-                )
-            )
-            if not branch.deleted
-            else None
-        )
-        view.primary = view.refs[target.id]
-        view.state = view.comparison.state if view.comparison else "missing"
-        view.primary_reason = "本次选择的比较对象"
     commits, commit_error = [], None
-    if view.comparison:
+    if view.comparison and view.comparison.ahead != 0:
         try:
             commits = read_unique_commits(
                 request.app.state.settings,
@@ -134,6 +116,25 @@ def branch_detail(
         commits=commits,
         commit_error=commit_error,
         actor=actor,
+    )
+
+
+@router.get("/repositories/{repository_id}/inspect")
+def inspect(
+    repository_id: int,
+    request: Request,
+    user: User | None = Depends(optional_user),
+    session: Session = Depends(get_session),
+):
+    repo = require_repository_access(session, user, repository_id)
+    branch = require_branch(session, repo, number(request.query_params.get("branch_id"), 0, 2**31 - 1))
+    if branch.deleted:
+        raise HTTPException(404)
+    views = apply_target_override(session, repo, branch_views(session, [repo])[repo.id], request)
+    view = next(view for view in views if view.branch.id == branch.id)
+    return render(
+        request, "project_inspector.html", session, user, repo=repo, view=view,
+        **workspace_context(request, repo, [view]),
     )
 
 
@@ -192,6 +193,20 @@ def status(
         "git_error": bool(repo.sync_error),
         "api_error": bool(repo.api_error),
     }
+
+
+@router.get("/repositories/{repository_id}/jobs")
+def repository_jobs(
+    repository_id: int,
+    request: Request,
+    user: User | None = Depends(optional_user),
+    session: Session = Depends(get_session),
+):
+    require_repository_access(session, user, repository_id)
+    return JSONResponse(
+        progress_batch(session, request.query_params.get("jobs"), repository_id=repository_id, user=user),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/repositories/{repository_id}/jobs/{job_id}")

@@ -1,15 +1,15 @@
 x-app: &app
-  image: ${GEV_INTRANET_IMAGE:?Run deploy-intranet first}
+  image: ${GEV_INTRANET_IMAGE:?Run bash deploy/deploy.sh first}
   build:
     context: .
     dockerfile: deploy/Dockerfile
     args:
-      GEV_CA_FINGERPRINT: ${GEV_CA_FINGERPRINT:?Run deploy-intranet first}
+      GEV_CA_FINGERPRINT: ${GEV_CA_FINGERPRINT:?Run bash deploy/deploy.sh first}
     secrets: [build_network, corporate_ca]
     extra_hosts: [host.docker.internal:host-gateway]
   env_file:
     - ${GEV_ENV_FILE:-./runtime/local.env}
-    - path: ${GEV_RUNTIME_NETWORK:?Run deploy-intranet first}
+    - path: ${GEV_RUNTIME_NETWORK:?Run bash deploy/deploy.sh first}
       format: raw
   extra_hosts: [host.docker.internal:host-gateway]
   environment:
@@ -23,7 +23,7 @@ x-app: &app
     - app-data:/data/db
     - git-cache:/data/git
     - type: bind
-      source: ${GEV_CA_DIR:?Run deploy-intranet first}
+      source: ${GEV_CA_DIR:?Run bash deploy/deploy.sh first}
       target: /etc/gev/ca
       read_only: true
       bind:
@@ -54,7 +54,7 @@ services:
       - app-data:/data/db
       - git-cache:/data/git
       - type: bind
-        source: ${GEV_CA_DIR:?Run deploy-intranet first}
+        source: ${GEV_CA_DIR:?Run bash deploy/deploy.sh first}
         target: /etc/gev/ca
         read_only: true
         bind:
@@ -63,9 +63,9 @@ services:
 
 secrets:
   build_network:
-    file: ${GEV_BUILD_NETWORK:?Run deploy-intranet first}
+    file: ${GEV_BUILD_NETWORK:?Run bash deploy/deploy.sh first}
   corporate_ca:
-    file: ${GEV_BUILD_CA:?Run deploy-intranet first}
+    file: ${GEV_BUILD_CA:?Run bash deploy/deploy.sh first}
 volumes:
   app-data:
   git-cache:

@@ -3,6 +3,7 @@
 set -eu
 
 : "${GEV_PROJECT_ROOT:?Use bash .agent/run.sh deploy; this script runs inside Docker}"
+. /workspace/deploy/compose-common.sh
 
 production=false
 env_file=
@@ -28,7 +29,7 @@ if [ -z "$env_file" ]; then
 fi
 
 compose() {
-  docker compose --project-directory "$GEV_PROJECT_ROOT" \
+  compose_cli --project-directory "$GEV_PROJECT_ROOT" \
     -f "$GEV_PROJECT_ROOT/compose.yaml" --env-file "/workspace/$env_file" "$@"
 }
 
@@ -47,6 +48,8 @@ report_failure() {
 }
 trap report_failure EXIT
 docker info --format '{{.ServerVersion}}'
+phase="Compose availability"
+compose_detect
 phase="Compose configuration validation"
 compose config --quiet
 if [ "$build" = true ]; then
@@ -59,7 +62,7 @@ phase="application shutdown before migration"
 compose stop web worker dispatcher
 if [ "$migrate_sqlite" = true ]; then
   phase="PostgreSQL to SQLite transfer"
-  compose up -d --no-build --wait --wait-timeout "$wait_timeout" postgres
+  compose_start "$wait_timeout" postgres -d --no-build
   compose run --rm --no-deps -T tools python .agent/migrate-sqlite.py --env-file "$env_file"
 fi
 phase="database migration"
@@ -67,7 +70,7 @@ compose run --rm --no-deps -T migrate
 phase="legacy service shutdown"
 compose stop postgres redis
 phase="application startup and health check"
-compose up -d --no-deps --no-build --wait --wait-timeout "$wait_timeout" web
+compose_start "$wait_timeout" web -d --no-deps --no-build
 phase="deployment status"
 compose ps
 printf '\nDeployment complete. Web loopback address: '

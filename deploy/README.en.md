@@ -6,7 +6,18 @@ This directory contains a separate Dockerfile, Compose configuration, and deploy
 
 ## 1. Configure Docker image access first
 
-Use Docker Desktop or Docker Engine, Compose 2.30+, and BuildKit. The runner supplies its Docker CLI / Compose image. Run project commands from the repository root through `bash .agent/run.sh ...`. The runner executes `deploy/deploy.sh` inside a Docker CLI container; do not execute it directly on the host.
+Use Docker Engine 20.10+ (or a corresponding Docker Desktop release) and BuildKit. Run the standalone entry point `bash deploy/deploy.sh` from the repository root. On the host it only invokes Docker; configuration, builds, migrations, and application commands execute in containers. Host Python, Node, and `.agent/run.sh` are unnecessary.
+
+**Both modern `docker compose` and legacy `docker-compose` (minimum 1.29.2) are supported.** The default `docker:28-cli` tool container makes deployment independent of whether Compose is installed on the host and which version it has. The script prefers the tool container's Compose plugin and falls back to `docker-compose`. Older versions automatically use compatible configuration and health polling while preserving BuildKit secrets, proxy values, and CA settings. No additional persistent container is needed.
+
+For v1 updates, the deployment script replaces the web container after a successful database migration and retains the named SQLite and Git cache volumes. Use `bash deploy/deploy.sh` for updates: calling legacy `docker-compose up` directly on newer Docker Engines can fail because of the obsolete `ContainerConfig` field.
+
+To use an internal tool image, set `GEV_DOCKER_CLI_IMAGE`. The image must contain `docker`, `sh`, `awk`, `date`, and either Compose implementation above. Replace the example address with your actual image and use the same setting for subsequent deployment and operations commands. Personal computers need no override:
+
+```bash
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash deploy/deploy.sh
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash deploy/deploy.sh compose --env-file runtime/local.env ps
+```
 
 There are two separate network configuration layers:
 
@@ -15,7 +26,7 @@ There are two separate network configuration layers:
 | Docker itself | Desktop settings, or Engine daemon settings and host trust | Pull Python, Docker CLI, and build base images |
 | Build and application | `runtime/*.network.env` and the CA directory | Download pip dependencies and make runtime Git/API requests |
 
-**Configure the first layer before deployment.** Application configuration cannot repair a runner image pull that has not succeeded yet.
+**Configure the first layer before deployment.** Application configuration cannot repair a tool image pull that has not succeeded yet.
 
 Docker Desktop: configure Proxies in Settings, add company roots to host trust, and restart Desktop. Desktop ignores proxy settings in `daemon.json`. See [Desktop proxy settings](https://docs.docker.com/desktop/settings-and-maintenance/settings/#proxies) and [Docker CA guidance](https://docs.docker.com/engine/network/ca-certs/).
 
@@ -34,7 +45,7 @@ Linux Docker Engine: have an administrator merge these fields into `/etc/docker/
 ## 2. Prepare the initial configuration
 
 ```bash
-bash .agent/run.sh deploy-intranet --init
+bash deploy/deploy.sh --init
 ```
 
 This prepares files only; it does not build, start the application, or create users. Existing application configuration and keys are preserved.
@@ -70,29 +81,23 @@ Place company CA files in `runtime/ca/`, for example `runtime/ca/company-root.cr
 ## 3. Deploy, update, and retain personal-computer compatibility
 
 ```bash
-bash .agent/run.sh deploy-intranet
-bash .agent/run.sh deploy-intranet --no-build
-bash .agent/run.sh deploy-intranet --pull --wait-timeout 300
-bash .agent/run.sh deploy-intranet --help
+bash deploy/deploy.sh
+bash deploy/deploy.sh --no-build
+bash deploy/deploy.sh --pull --wait-timeout 300
+bash deploy/deploy.sh --help
 ```
 
 Use the first command for initial deployment and source updates, the second to reuse the existing intranet image, and the third to refresh the build base image too. The script validates configuration, builds, stops web, migrates the database, starts web, and waits for health. Failure returns nonzero and retains configuration and volumes. The default URL is [http://127.0.0.1:8766](http://127.0.0.1:8766).
 
 The same `COMPOSE_PROJECT_NAME` reuses existing `app-data` and `git-cache` volumes without copying or emptying SQLite. Back up before switching deployment methods. Do not run both deployment workflows against one project concurrently.
 
-The original personal-computer entry point remains available:
-
-```bash
-bash .agent/run.sh deploy
-```
-
-Alternatively, use the new entry point with empty proxy values and an empty CA directory. It uses a separate `-intranet` image tag, preserving the original personal-computer image. Build it on first use; subsequent runs may use `--no-build`. Returning to the original entry point removes automatic company proxy/CA injection. The new workflow supports the current single-container SQLite layout only. Migrate old PostgreSQL installations using `--migrate-sqlite` in the [original deployment guide](../docs/en/docker-deployment.md) first; do not just replace the database URL.
+Personal computers use the same `bash deploy/deploy.sh` command with empty proxy values and an empty CA directory. The script uses a separate `-intranet` image tag. Build it on first use; subsequent runs may use `--no-build`. This entry point supports the current single-container SQLite layout. Migrate old PostgreSQL installations using `--migrate-sqlite` in the [database migration guide](../docs/en/docker-deployment.md) first; do not just replace the database URL.
 
 ## 4. Production intranet service and separate instances
 
 ```bash
-bash .agent/run.sh deploy-intranet --production --init
-bash .agent/run.sh deploy-intranet --production --wait-timeout 300
+bash deploy/deploy.sh --production --init
+bash deploy/deploy.sh --production --wait-timeout 300
 ```
 
 Between these commands, edit `runtime/production.network.env` and install your CAs. Production uses a separate `runtime/production.env`, Compose project, and volumes; the default backend port is 8767. Browser access must use an HTTPS reverse proxy for Secure login cookies. Outbound `HTTPS_PROXY` does not provide HTTPS to users' browsers.
@@ -100,7 +105,7 @@ Between these commands, edit `runtime/production.network.env` and install your C
 The default bind address is `127.0.0.1`, suitable for a reverse proxy on the same host. To allow a reverse proxy on another machine, explicitly choose the server's intranet IP or the all-interface address below, and restrict source access with a firewall:
 
 ```bash
-bash .agent/run.sh deploy-intranet --production --bind-address 0.0.0.0 --no-build
+bash deploy/deploy.sh --production --bind-address 0.0.0.0 --no-build
 ```
 
 Project pages allow anonymous reading. Anyone who can reach the published port can browse projects. Production administrator login still requires HTTPS.
@@ -108,8 +113,8 @@ Project pages allow anonymous reading. Anyone who can reach the published port c
 A separate test instance can use its own application configuration, network settings, CA directory, project name, and port:
 
 ```bash
-bash .agent/run.sh deploy-intranet --env-file runtime/intranet-test.env --project-name gev-intranet-test --port 8772 --network-file runtime/intranet-test.network.env --ca-dir runtime/company-ca --init
-bash .agent/run.sh deploy-intranet --env-file runtime/intranet-test.env
+bash deploy/deploy.sh --env-file runtime/intranet-test.env --project-name gev-intranet-test --port 8772 --network-file runtime/intranet-test.network.env --ca-dir runtime/company-ca --init
+bash deploy/deploy.sh --env-file runtime/intranet-test.env
 ```
 
 Custom files and directories belong under `runtime/`. Network paths, CA paths, and bind addresses are saved in the corresponding `.deploy.env`; subsequent runs need not repeat them. Existing env ports and project names are not silently rewritten by command options. Use a new env and project name for another instance. Continue passing `--production` for subsequent production deployments.
@@ -126,20 +131,20 @@ Credentials are absent from image configuration, but Docker administrators can i
 
 ## 6. Administration, backups, and troubleshooting
 
-This workflow uses its own Compose file. Use `intranet-compose` for daily operations; it loads the saved deployment settings for the selected environment:
+Use the same script's `compose` subcommand for daily operations. It selects the dedicated Compose file and loads the saved deployment settings for the selected environment:
 
 ```bash
-bash .agent/run.sh intranet-compose --env-file runtime/local.env ps
-bash .agent/run.sh intranet-compose --env-file runtime/local.env logs --tail=100 web
-bash .agent/run.sh intranet-compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username your-admin --admin
-bash .agent/run.sh intranet-compose --env-file runtime/local.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/intranet-before-update --env-file runtime/local.env
+bash deploy/deploy.sh compose --env-file runtime/local.env ps
+bash deploy/deploy.sh compose --env-file runtime/local.env logs --tail=100 web
+bash deploy/deploy.sh compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username your-admin --admin
+bash deploy/deploy.sh compose --env-file runtime/local.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/intranet-before-update --env-file runtime/local.env
 ```
 
-Administrator passwords are prompted interactively. Substitute `runtime/production.env` for production operations. Use a fresh backup directory each time. In addition to the database and matching application keys, securely retain network settings, deployment options, and CAs. Follow the [operations guide](../docs/en/docker-deployment.md) for database restoration, replacing Compose commands with `intranet-compose` and restarting with `deploy-intranet`. Do not run `down -v`.
+Administrator passwords are prompted interactively. Substitute `runtime/production.env` for production operations. Use a fresh backup directory each time. In addition to the database and matching application keys, securely retain network settings, deployment options, and CAs. Follow the [operations guide](../docs/en/docker-deployment.md) for database restoration, starting Compose commands with `bash deploy/deploy.sh compose` and restarting with `bash deploy/deploy.sh --no-build`. Do not run `down -v`.
 
 | Symptom | Where to check |
 |---|---|
-| Runner / base image pull fails | Desktop / daemon proxy and system trust; application deployment has not started yet |
+| Tool / base image pull fails | Desktop / daemon proxy and system trust; application deployment has not started yet |
 | pip timeout, 407, or certificate failure | Network proxy authentication, pip indexes, and company CAs used for building |
 | Pages work but Git synchronization fails | Application logs, proxy reachability, `NO_PROXY`, token permissions, and connection CA paths |
 | CA changes do not resolve errors | Redeploy to regenerate the bundle; check connection-specific CA overrides |

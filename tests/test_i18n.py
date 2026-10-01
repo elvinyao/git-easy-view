@@ -162,7 +162,7 @@ def test_admin_pages_and_parameterized_form_errors(app, client, admin_pages, use
     assert response.status_code == 400
     assert 'class="language-picker"' not in response.text
     assert {"zh-CN": "最多 255 字符", "ja": "最大 255 文字", "en": "up to 255 characters"}[locale] in response.text
-    assert "x" * 256 not in response.text
+    assert "x" * 256 in response.text  # Nonsecret input remains available for correction.
     response = post_form(client, "/admin/users", username="i18n", password="secret!")
     assert response.status_code == 400
     assert "secret!" not in response.text
@@ -172,7 +172,7 @@ def test_admin_pages_and_parameterized_form_errors(app, client, admin_pages, use
 def test_localized_json_errors_preserve_status_and_redirect_headers(client, user):
     response = client.get("/admin?lang=ja", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "/login?next=%2Fadmin%3Flang%3Dja"
     assert login(client).status_code == 303
     response = client.post("/logout", headers={"Accept": "application/json"})
     assert response.status_code == 403
@@ -218,7 +218,7 @@ def test_language_preference_preserves_filters_and_escapes_user_content(app, cli
     assert query not in response.text
     assert escape(query) in response.text
     assert 'class="language-picker"' not in response.text
-    filters = re.search(r'<form[^>]*class="filters".*?</form>', response.text, re.S)[0]
+    filters = re.search(r'<form[^>]*class="filters(?: [^"]*)?".*?</form>', response.text, re.S)[0]
     assert 'value="feature" selected' in filters
     assert 'name="expanded"' in filters and 'name="bp_1" value="2"' in filters
     assert 'name="lang" value="en"' in filters
@@ -235,7 +235,15 @@ def test_catalog_covers_visible_templates_and_dynamic_messages():
         for node in tree.find_all(nodes.Call):
             if isinstance(node.node, nodes.Name) and node.node.name == "t" and node.args and isinstance(node.args[0], nodes.Const):
                 sources.add(node.args[0].value)
-    for path in ("app/web.py", "app/routes/admin.py", "app/routes/repositories.py", "app/git_workspace.py", "app/project_overview.py"):
+        sources.update(
+            node.value for node in tree.find_all(nodes.Const)
+            if isinstance(node.value, str) and re.search(r"[\u3400-\u9fff]", node.value)
+        )
+    for path in (
+        "app/web.py", "app/auth.py", "app/main.py", "app/routes/admin.py",
+        "app/routes/repositories.py", "app/routes/projects.py", "app/git_workspace.py",
+        "app/project_overview.py", "app/job_progress.py",
+    ):
         tree = ast.parse(Path(path).read_text())
         sources.update(
             node.value for node in ast.walk(tree)

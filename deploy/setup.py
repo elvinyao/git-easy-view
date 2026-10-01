@@ -1,6 +1,5 @@
 """Prepare proxy/CA deployment using only the bundled Python standard library."""
 import hashlib
-import importlib.util
 import ipaddress
 import json
 import os
@@ -9,12 +8,10 @@ import re
 from urllib.parse import urlsplit
 
 from trust import corporate_pem
+import configuration as base
 
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("base_setup", ROOT / ".agent/setup-local.py")
-base = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(base)
 NETWORK_KEYS = {"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"}
 
 
@@ -50,6 +47,16 @@ def write_private(path, content):
     preserve_workspace_owner(path)
 
 
+def compose_environment(values):
+    """Serialize one dotenv file accepted by both Compose generations."""
+    lines = []
+    for key, value in values.items():
+        # Single quotes keep dollars literal; dotenv supports these two escapes.
+        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+        lines.append(f"{key}='{escaped}'\n")
+    return "".join(lines)
+
+
 def normalize_network(values):
     if set(values) - NETWORK_KEYS:
         raise ValueError("Network file supports only HTTP_PROXY, HTTPS_PROXY, NO_PROXY, PIP_INDEX_URL and PIP_EXTRA_INDEX_URL")
@@ -79,8 +86,9 @@ def normalize_network(values):
 
 def argument_parser():
     parser = base.argument_parser()
-    parser.prog = "bash .agent/run.sh deploy-intranet"
+    parser.prog = "bash deploy/deploy.sh"
     parser.description = "Deploy one SQLite application container with optional outbound proxy and corporate CA"
+    parser.epilog = "Manage services: bash deploy/deploy.sh compose --env-file runtime/local.env ps (or logs, stop, etc.)"
     parser.add_argument("--init", action="store_true", help="prepare configuration only, without building or starting services")
     parser.add_argument("--network-file", help="literal proxy/index env file inside runtime/")
     parser.add_argument("--ca-dir", help="directory inside runtime/ containing PEM .crt/.pem certificates")
@@ -127,7 +135,8 @@ def prepare(args):
     write_private(build_network, json.dumps(build_values))
     write_private(runtime_network, "".join(f"{key}={value}\n" for key, value in runtime_values.items()))
     write_private(build_ca, certificates)
-    base_image = base.read_env(target).get("GEV_APP_IMAGE", "git-easy-view:local")
+    application = base.read_env(target)
+    base_image = application.get("GEV_APP_IMAGE", "git-easy-view:local")
     if "@" in base_image:
         raise ValueError("GEV_APP_IMAGE must be a buildable image name/tag, not a digest")
     image = base_image + ("-intranet" if ":" in base_image.rsplit("/", 1)[-1] else ":intranet")
@@ -139,6 +148,9 @@ def prepare(args):
         "GEV_INTRANET_IMAGE": image,
     }
     write_private(control, "".join(f"{key}={value}\n" for key, value in controls.items()))
+    # Compose v1 accepts only one --env-file. Preserve application/control
+    # precedence without evaluating a credentials file as shell code.
+    write_private(generated / "compose.env", compose_environment({**application, **controls}))
     print(f"{'Created' if created else 'Preserved'} {target}; prepared {network} and CA mapping {ca_dir}.")
     print("Proxy values and credentials are not printed. Deployment remains a single application container.")
     if args.init:

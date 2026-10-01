@@ -49,7 +49,7 @@ def test_project_shows_default_all_releases_and_all_features(client, pages, over
     releases = re.search(r'<section class="overview-cell overview-releases".*?</section>', body, re.S)[0]
     features = re.search(r'<section class="overview-cell overview-features".*?</section>', body, re.S)[0]
     assert "Example main advance" in main and overview_history["main"][:7] in main
-    assert "datetime=" in main and "提交时间 UTC" in body
+    assert "datetime=" in main and "UTC" in main
     assert releases.index("release/2026.10") < releases.index("release/2026.09")
     assert "Example root" in releases and "Example independent feature" in releases
     assert 'data-state="contained"' in releases and 'data-state="diverged"' in releases
@@ -63,7 +63,8 @@ def test_project_shows_default_all_releases_and_all_features(client, pages, over
     assert f'commit={overview_history["main"]}' in main
     # Filtering surfaces the matching feature while preserving the default context.
     filtered = client.get(f"/projects/{pages['project']}?q=login&role=feature")
-    assert "feature/login" in filtered.text and "feature/z-latest" not in filtered.text
+    filtered_features = re.search(r'<section class="overview-cell overview-features".*?</section>', filtered.text, re.S)[0]
+    assert "feature/login" in filtered_features and "feature/z-latest" not in filtered_features
     assert "Example main advance" in filtered.text
 
 
@@ -204,3 +205,69 @@ def test_tip_subjects_batch_more_than_five_hundred_distinct_commits(monkeypatch)
     _tip_subjects.cache_clear()
     assert set(_tip_subjects("/unused-cache", oids)) == set(oids)
     assert [len(items) for items in calls] == [500, 1]
+
+
+def test_summary_precedes_complete_branches_and_links_preserve_baseline(client, pages, overview_history):
+    body = client.get(f"/projects/{pages['project']}?q=login").text
+    assert 'data-repository-summary=' in body
+    assert body.index('data-repository-summary=') < body.index('data-overview-repository=')
+    assert '最新功能分支' in body and '仓库摘要' in body
+    assert f'target_id={pages["main"]}' in body
+    assert 'data-inspect-url=' in body
+    assert 'id="project-inspector"' in body
+    assert '匹配 1 / 全部 11 分支' in body
+    assert '主干作为比较上下文保留' in body
+
+
+def test_active_release_is_text_and_summary_does_not_duplicate_branch_rows(client, pages, overview_history):
+    body = client.get(f"/projects/{pages['project']}").text
+    assert '当前发布' in body
+    assert '当前发布优先 · 最近提交排序' in body
+    assert body.count('data-summary-branch-id=') == 11
+    assert '有独有提交' not in body
+    assert '未全部包含' in body
+
+
+def test_repository_and_attention_filters_preserve_scope(app, client, pages):
+    with Session(app.state.engine) as session:
+        repo = session.get(Repository, pages['repo'])
+        repo.api_synced_at = repo.git_synced_at = utc_now()
+        repo.snapshot_generation = repo.api_generation = repo.requested_generation = 1
+        session.commit()
+    base = f"/projects/{pages['project']}"
+    assert 'data-overview-repository=' not in client.get(base + '?repo_q=unmatched').text
+    assert 'data-overview-repository=' in client.get(base + '?repo_q=TEAM/API').text
+    assert 'data-overview-repository=' not in client.get(base + '?attention=1').text
+    with Session(app.state.engine) as session:
+        session.get(Repository, pages['repo']).sync_error = 'private diagnostic'
+        session.commit()
+    body = client.get(base + '?attention=1&repo_q=api').text
+    assert 'data-overview-repository=' in body
+    assert 'private diagnostic' not in body
+
+
+def test_summary_keeps_latest_repository_tips_when_branch_list_is_filtered(client, pages, overview_history):
+    body = client.get(f"/projects/{pages['project']}?q=login").text
+    summary = re.search(r'<tr data-repository-summary=.*?</tr>', body, re.S)[0]
+    assert 'release/2026.10' in summary and 'feature/z-latest' in summary
+    assert '全部 2 条' in summary and '全部 8 条' in summary
+    assert '摘要显示完整仓库，分支列表遵循筛选。' in body
+
+
+def test_complete_group_link_finds_repository_after_clearing_branch_filter(app, client, pages):
+    from html import unescape
+    with Session(app.state.engine) as session:
+        for index in range(50):
+            repo = Repository(connection_id=pages['connection'], external_id=f'page-{index}', name=f'zzz-{index:03}',
+                              full_name=f'zzz/team-{index:03}', web_url='https://github.com/team/api', clone_url='https://github.com/team/api.git')
+            session.add(repo)
+            session.flush()
+            session.add(ProjectRepository(project_id=pages['project'], repository_id=repo.id))
+            session.add(Branch(repository_id=repo.id, name='feature/needle' if index == 49 else 'feature/other', head_oid='f' * 40))
+        session.commit()
+        last_id = repo.id
+    body = client.get(f"/projects/{pages['project']}?q=needle").text
+    link = re.search(r'href="([^"]*#features-' + str(last_id) + r')"', body)[1]
+    assert 'page=2' in link and 'q=needle' not in link
+    target = client.get(f"/projects/{pages['project']}" + unescape(link)).text
+    assert f'id="features-{last_id}"' in target

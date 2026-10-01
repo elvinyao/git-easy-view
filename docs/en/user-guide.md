@@ -33,9 +33,11 @@ Select a project from the home page, for example `/projects/1`. Each repository 
 
 The platform's declared default branch takes priority. If it is unavailable, the application tries `main`, then `master`. Other branches are ordered by latest commit, with active release branches first. Release branches remain visible even when none is marked active.
 
-A project page contains up to 50 repositories. Use the repository navigation to jump between them. Search branch names or filter by role and relationship; the default branch remains as comparison context. The default layout displays all branches. Compact mode retains all branches in scrollable lists. Filters, density, and pagination are stored in the URL for refresh and sharing. Deleted branches are omitted from the overview.
+Start with the **repository summary table**. Each row compares the default tip, current or latest release, newest feature, and separate Git/API synchronization status. Summaries retain the repository's latest tips while branch filters apply to the list below. Count links clear branch filters and jump to the full group. Release branch status describes commits, not deployment to an environment.
 
-Click a branch name for evidence or a hash to open that commit in the Git workspace. Expand the detailed relationship table for planned targets and other evidence. Its separate pagination does not reduce the branches in the overview.
+A page contains up to 50 repositories. Search repository and branch names separately, filter by role or relationship, or show only synchronization needing attention. The default branch remains as comparison context, and matching counts are distinct from totals. The **complete branch lists** start expanded. Use “Collapse all” to close repository sections, then open a heading or summary link as needed. Lists no longer require scrolling inside small panels. Filters and pagination remain shareable in the URL. Deleted branches are omitted.
+
+Click a branch name or hash to open the **detail drawer** without leaving the project. Inspect full names, commit titles, authors, hashes, changed files, comparison targets, and PR/MR evidence. Escape or Close restores your position; Back, Forward, and reload restore selections. Open the full Git workspace from the drawer for history, then use “Back to project” to retain your filters. Relative times have full UTC tooltips. The optional detailed relationship table retains separate pagination without reducing the complete branch lists.
 
 ## 4. Interpret branch relationships
 
@@ -44,8 +46,8 @@ Relationships refer to the current source and target OIDs shown on the page. The
 | State | Meaning | Example |
 |---|---|---|
 | Identical | Both branches point to the same commit | `feature/a` and `main` have the same hash |
-| Contained | The source tip is reachable from the target's history | The feature has no unique commits; the target may have advanced |
-| Unique commits | The source has commits absent from the target | `ahead=3, behind=0` means three ahead; `ahead=3, behind=2` means both sides have diverged |
+| Commits contained | The source tip is reachable from the target's history | The feature has no unique commits; the target may have advanced |
+| Not fully contained | The source has commits absent from the target | `ahead=3, behind=0` means three ahead; `ahead=3, behind=2` means both sides have diverged |
 | Unrelated | There is no common ancestor in the current graph | Do not interpret this as ordinary ahead / behind |
 | Not analyzed / unavailable | A cached comparison for the fixed tips is unavailable | Wait for synchronization or ask an administrator to schedule comparison |
 
@@ -56,6 +58,8 @@ Read these kinds of evidence separately:
 3. **Current containment and historical merges:** containment describes present Git reachability; a merged PR/MR records a past platform event. Force pushes, later commits, and squash / rebase merges can make them differ.
 
 A feature can show `ahead=2` after its PR was merged if two more commits were added. Missing historical PR/MR records do not prove a branch was never merged; check the stated history window. The application does not infer content equivalence after cherry-pick, revert, or squash.
+
+Navigation from the project into the drawer, workspace, or evidence keeps the project's default branch as the explicit comparison target. Labels identify that baseline; manual planned targets appear separately. Uncontained commits are normal development relationships, not synchronization failures.
 
 ## 5. Git workspace and commit details
 
@@ -77,6 +81,8 @@ Commit time describes the commit; Git sync time describes branch snapshot retrie
 
 Refreshing the cached view rereads stored data. Only an administrator's immediate synchronization action schedules remote retrieval. Failed synchronization or a paused connection leaves older snapshots readable, with status indicators explaining the limitation.
 
+After import or manual synchronization, progress lists queued, running, completed, or failed outcomes per repository. Successful completion refreshes snapshots; failures are never labelled successful. Retry an unavailable status request, or refresh status manually after automatic polling pauses for a long-running job. First-sync waiting, initial failure, an empty repository, and no filter matches have distinct messages. Existing snapshots remain readable during synchronization.
+
 ## 7. Administrator setup
 
 Installation creates no accounts. An operator first creates an administrator using the [deployment guide](docker-deployment.md#3-create-an-administrator-or-an-optional-demo), then signs in at `/login`.
@@ -84,7 +90,7 @@ Installation creates no accounts. An operator first creates an administrator usi
 1. Create a project on `/admin` with a name, unique slug, and description.
 2. Create a GitHub or GitLab connection with its HTTPS instance URL, token, and optional company CA path inside the container.
 3. Save and check the connection. Credential or CA changes pause it until verification succeeds.
-4. Choose the target project and import 1–50 repositories at a time. Initial synchronization is asynchronous; wait for the snapshot.
+4. Search names or namespaces, choose the target project, and select 1–50 repositories. Select the current page and retain selections while paging. Check imported labels and the selection count before submitting. Follow asynchronous initial synchronization on the project page.
 5. Adjust the interval and release / feature prefixes, and explicitly mark active release branches.
 6. Configure manual source claims, planned targets, primary comparison branches, or historical PR/MR backfill as needed.
 
@@ -92,12 +98,14 @@ A repository can belong to several projects and reuse its cache and analysis. A 
 
 Tokens are encrypted in the database and old tokens are not redisplayed. See [Docker and automated deployment](docker-deployment.md#5-platform-tokens-and-company-ca) for scopes and company CA configuration.
 
+Validation errors appear on the original form and retain nonsecret inputs. Correct the identified fields; passwords and tokens must be entered again. Signing in for administration returns you to the original destination. Account identity and logout remain available on mobile.
+
 ## 8. Common questions
 
 | Symptom | Action |
 |---|---|
 | No projects | A fresh instance is empty; an administrator must create a project and import repositories |
-| A branch is missing | Clear filters; check repository pagination, compact scrolling, and Git sync. Deleted branches are omitted |
+| A branch is missing | Clear filters and expand its repository; check pagination and Git sync. Deleted branches are omitted |
 | A hash has no message yet | Objects may be missing or the cache busy; refresh later and request synchronization if it persists |
 | A new commit is absent | View refresh does not fetch; wait for the scheduler or ask an administrator to synchronize |
 | A merged PR still has unique commits | Check current OIDs, the target, subsequent commits, and rewritten history |

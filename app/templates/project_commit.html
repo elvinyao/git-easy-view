@@ -1,27 +1,34 @@
+{% macro timestamp(value) %}
+  {% if value %}<time data-relative-time datetime="{{ value.isoformat() }}" title="{{ value|date }}" aria-label="{{ value|date }}">{{ value.strftime('%m-%d %H:%M') }}</time>{% else %}<span class="muted">{{ t('提交时间未知') }}</span>{% endif %}
+{% endmacro %}
+
 {% macro commit(view) %}
-  {% set branch = view.branch %}
+  {% set branch = view.branch %}{% set branch_link = branch_urls(view) %}{% set commit_link = branch_urls(view, 'commit') %}
   <div class="overview-branch" data-summary-branch-id="{{ branch.id }}" data-state="{{ view.state }}" data-role="{{ view.role }}">
     <div class="overview-branch-heading">
-      <a class="overview-branch-name" href="/repositories/{{ branch.repository_id }}/branches/{{ branch.id }}?lang={{ locale }}" title="{{ branch.name }}">{{ branch.name }}</a>
-      {% if view.is_default %}
-        <span class="overview-state is-default">{{ t('默认') }}</span>
-      {% else %}
-        {% set labels = {'identical': '相同', 'contained': '已包含', 'diverged': '有独有提交', 'unrelated': '无共同历史', 'missing': '未分析'} %}
-        <span class="overview-state {{ view.state }}" title="{{ t('相对 {branch} 的提交关系', branch=view.baseline.name) if view.baseline else t('默认主干不可用') }}">{{ t(labels.get(view.state, '未分析')) }}</span>
-      {% endif %}
-      {% if branch.config and branch.config.active_release %}<span class="overview-active" title="{{ t('活跃发布') }}" aria-label="{{ t('活跃发布') }}">●</span>{% endif %}
+      <a class="overview-branch-name" href="{{ branch_link.href }}" data-inspect-url="{{ branch_link.inspect }}" title="{{ branch.name }}">{{ branch.name }}</a>
+      <div class="overview-branch-tags">
+        {% if view.is_default %}<span class="overview-state is-default">{{ t('默认') }}</span>
+        {% else %}<span class="overview-state {{ view.state }}">{{ states.get(view.state, t('未分析')) }}</span>{% endif %}
+        {% if branch.config and branch.config.active_release %}<span class="overview-active" aria-label="{{ t('活跃发布') }}">{{ t('当前发布') }}</span>{% endif %}
+      </div>
     </div>
-    <p class="overview-subject {{ 'unavailable' if view.subject is none else '' }}" title="{{ view.subject if view.subject is not none else t(view.subject_error or '提交摘要尚不可用') }}">
-      {{ (view.subject or t('无提交标题')) if view.subject is not none else t(view.subject_error or '提交摘要尚不可用') }}
-    </p>
+    <p class="overview-subject {{ 'unavailable' if view.subject is none else '' }}" title="{{ view.subject if view.subject is not none else t(view.subject_error or '提交摘要尚不可用') }}">{{ (view.subject or t('无提交标题')) if view.subject is not none else t(view.subject_error or '提交摘要尚不可用') }}</p>
     <div class="overview-commit-meta">
-      {% if branch.head_oid %}
-        <a class="overview-hash" href="/repositories/{{ branch.repository_id }}/branches?branch_id={{ branch.id }}&amp;commit={{ branch.head_oid }}&amp;lang={{ locale }}" title="{{ branch.head_oid }}">{{ branch.head_oid[:7] }}</a>
-      {% else %}<span class="muted">{{ t('无提交') }}</span>{% endif %}
-      {% if branch.commit_time %}<time datetime="{{ branch.commit_time.isoformat() }}" title="{{ branch.commit_time|date }}" aria-label="{{ branch.commit_time|date }}">{{ branch.commit_time.strftime('%m-%d %H:%M') }}</time>{% else %}<span class="muted">{{ t('提交时间未知') }}</span>{% endif %}
-      {% if not view.is_default and view.comparison and view.state != 'unrelated' %}
-        <span class="overview-delta" title="{{ t('领先 {ahead} · 落后 {behind}（相对 {branch}）', ahead=view.comparison.ahead, behind=view.comparison.behind, branch=view.baseline.name) }}" aria-label="{{ t('领先 {ahead} · 落后 {behind}（相对 {branch}）', ahead=view.comparison.ahead, behind=view.comparison.behind, branch=view.baseline.name) }}"><b>↑{{ view.comparison.ahead }}</b><span>↓{{ view.comparison.behind }}</span></span>
-      {% elif not view.is_default and view.state == 'identical' %}<span class="overview-delta">↑0 ↓0</span>{% endif %}
+      <div class="overview-tip-meta">{{ timestamp(branch.commit_time) }}
+      {% if branch.head_oid %}<a class="overview-hash" href="{{ commit_link.href }}" data-inspect-url="{{ commit_link.inspect }}" title="{{ branch.head_oid }}">{{ branch.head_oid[:7] }}</a>{% else %}<span class="muted">{{ t('无提交') }}</span>{% endif %}</div>
+      {% if not view.is_default %}
+      <span class="overview-delta">{{ t('相对 {branch}', branch=view.baseline.name) if view.baseline else t('默认主干不可用') }}
+        {% if view.comparison and view.state != 'unrelated' %}<b>↑{{ view.comparison.ahead }}</b><span>↓{{ view.comparison.behind }}</span>{% elif view.state == 'identical' %}<b>↑0</b><span>↓0</span>{% endif %}
+      </span>{% endif %}
     </div>
   </div>
+{% endmacro %}
+
+{% macro summary_tip(view, empty_label) %}
+  {% if view %}{% set link = branch_urls(view) %}{% set tip = branch_urls(view, 'commit') %}
+    <a class="summary-branch-name" href="{{ link.href }}" data-inspect-url="{{ link.inspect }}" title="{{ view.branch.name }}">{{ view.branch.name }}</a>
+    <span class="summary-subject" title="{{ view.subject or t(view.subject_error or '提交摘要尚不可用') }}">{{ view.subject or t(view.subject_error or '提交摘要尚不可用') }}</span>
+    <span class="summary-tip-meta"><a href="{{ tip.href }}" data-inspect-url="{{ tip.inspect }}" title="{{ view.branch.head_oid or '' }}">{{ (view.branch.head_oid or '')[:7] }}</a>{{ timestamp(view.branch.commit_time) }}</span>
+  {% else %}<span class="muted">{{ t(empty_label) }}</span>{% endif %}
 {% endmacro %}

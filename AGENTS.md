@@ -6,7 +6,7 @@
 
 ## Docker Execution Policy
 
-Use the host only for inspection and source editing through file tools. Run all project execution, dependency installation, builds, tests, formatting, and Git mutations through `bash .agent/run.sh ...`. Reuse the existing Python 3.13 runner; never invoke `docker run` directly or use host shell redirection for project work. Put compound commands inside Docker, for example `bash .agent/run.sh sh -lc 'command1 && command2'`. If Docker or the runner fails, report it; never fall back to host execution.
+Use the host for inspection and source editing through file tools. Run project execution, dependencies, builds, tests, formatting, and Git mutations through `bash .agent/run.sh ...`. The authorized deployment exception is `bash deploy/deploy.sh ...`: this standalone host wrapper only launches Docker; configuration and deployment execute inside containers. Reuse Python 3.13; never invoke `docker run` directly or use host shell redirection. Put compound commands inside Docker: `bash .agent/run.sh sh -lc 'command1 && command2'`. If Docker fails, report it; never execute project code on the host.
 
 ## Build, Test, and Development Commands
 
