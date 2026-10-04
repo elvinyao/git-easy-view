@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import datetime
 from urllib.parse import quote, urlsplit
 
@@ -14,10 +15,13 @@ class GitHubProvider(Provider):
                 "version": response.headers.get("x-github-enterprise-version"), "capabilities": {}}
 
     def repositories(self) -> list[Repo]:
-        result = []
+        return list(self.iter_repositories())
+
+    def iter_repositories(self) -> Iterator[Repo]:
+        """Yield validated repositories without fetching unused later pages."""
         for page in self._pages("/user/repos", {"per_page": 100, "affiliation": "owner,collaborator,organization_member"}):
-            result.extend(self._repo(item) for item in page)
-        return result
+            for item in page:
+                yield self._repo(item)
 
     def repository(self, external_id: str, *, full_name: str | None = None) -> Repo:
         if full_name is not None:

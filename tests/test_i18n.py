@@ -243,6 +243,7 @@ def test_catalog_covers_visible_templates_and_dynamic_messages():
         "app/web.py", "app/auth.py", "app/main.py", "app/routes/admin.py",
         "app/routes/repositories.py", "app/routes/projects.py", "app/git_workspace.py",
         "app/project_overview.py", "app/job_progress.py",
+        "app/routes/releases.py", "app/releases.py", "app/release_forms.py",
     ):
         tree = ast.parse(Path(path).read_text())
         sources.update(

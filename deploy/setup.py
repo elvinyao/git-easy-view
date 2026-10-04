@@ -101,6 +101,7 @@ def prepare(args):
         raise ValueError("Use the original deploy --migrate-sqlite workflow before this SQLite-only deployment")
     target, created = base.prepare(args)
     preserve_workspace_owner(target)
+    preserve_workspace_owner(Path("runtime/local-repositories"))
     if target == Path("runtime/local.env"):
         preserve_workspace_owner(Path("runtime/demo-access.json"))
     os.umask(0o077)

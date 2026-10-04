@@ -24,7 +24,7 @@ def browser():
 
 
 @pytest.fixture(scope="module")
-def fixture_url(tmp_path_factory):
+def fixture_url(tmp_path_factory, request):
     from app.config import Settings
     from app.db import make_engine
     from app.demo import create_demo
@@ -34,11 +34,35 @@ def fixture_url(tmp_path_factory):
     engine = make_engine(settings.database_url)
     Base.metadata.create_all(engine)
     engine.dispose()
-    create_demo(settings, admin_password="browser-admin-password", member_password="browser-member-password", repositories=12)
+    fixture_size = getattr(request, "param", {})
+    create_demo(settings, admin_password="browser-admin-password", member_password="browser-member-password",
+                repositories=fixture_size.get("repositories", 12), branches=fixture_size.get("branches", 55))
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from app.models import Branch, GitTag
+    with Session(engine) as session:
+        for branch in session.scalars(select(Branch).where(Branch.name == "release/2026.09")):
+            session.add(GitTag(repository_id=branch.repository_id, name="v2026.09", object_oid=branch.head_oid,
+                               commit_oid=branch.head_oid, commit_time=branch.commit_time, subject="Browser release fixture"))
+        session.commit()
+    engine.dispose()
+    local_root = root / "local-workspace"
+    for name in ("api", "team/web"):
+        source = local_root / name
+        source.mkdir(parents=True)
+        for command in (
+            ["init", "-b", "main"], ["config", "user.name", "Browser fixture"],
+            ["config", "user.email", "browser@example.test"],
+            ["commit", "--allow-empty", "-m", "Local fixture"],
+            ["branch", "feature/local"],
+        ):
+            subprocess.run(["git", "-C", str(source), *command], check=True, capture_output=True)
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    env = dict(os.environ, GEV_DATABASE_URL=settings.database_url, GEV_CACHE_ROOT=settings.cache_root, GEV_PRODUCTION="false", GEV_COOKIE_SECURE="false")
+    env = dict(os.environ, GEV_DATABASE_URL=settings.database_url, GEV_CACHE_ROOT=settings.cache_root,
+               GEV_LOCAL_GIT_ROOT=str(local_root), GEV_LOCAL_GIT_DIRECTORY="/example/workspace",
+               GEV_PRODUCTION="false", GEV_COOKIE_SECURE="false")
     process = subprocess.Popen([sys.executable, "-m", "uvicorn", "tests.e2e_server:application", "--factory", "--host", "127.0.0.1", "--port", str(port)], env=env, stdout=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{port}"
     try:

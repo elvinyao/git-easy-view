@@ -25,6 +25,7 @@ from app.jobs import enqueue_sync, locked_repository
 from app.job_progress import progress_context
 from app.providers import get_provider, validate_remote_url
 from app.providers.base import _url_parts
+from app.providers.local import LocalProvider, browse, directory
 from app.sync import branch_role
 from datetime import datetime, timezone
 
@@ -34,8 +35,9 @@ FIELD_LABELS = {
     "username": "用户名",
     "slug": "项目标识",
     "description": "描述",
-    "kind": "平台",
+    "kind": "仓库来源",
     "base_url": "HTTPS 实例地址",
+    "local_path": "本地目录",
     "token": "访问令牌",
     "ca_bundle_path": "公司 CA 文件路径（可选）",
     "sync_interval_seconds": "同步间隔（秒）",
@@ -219,6 +221,8 @@ def get_or_404(session, model, identifier):
 
 def provider_for(request, connection):
     settings = request.app.state.settings
+    if connection.kind == "local":
+        return LocalProvider(connection, settings.local_git_root)
     token = (
         settings.decrypt_token(connection.encrypted_token)
         if connection.encrypted_token
@@ -434,6 +438,7 @@ def connection_form(
             else None
         ),
         check_result=None,
+        local_git_root=request.app.state.settings.local_git_root,
     )
 
 
@@ -453,24 +458,32 @@ def save_connection(
     )
     if connection is None:
         raise HTTPException(404)
-    name, kind, base = (
+    name, kind = (
         text_field(form, "name"),
         text_field(form, "kind", 32),
-        text_field(form, "base_url", 2048).rstrip("/"),
     )
+    local = kind == "local"
+    base = text_field(form, "local_path" if local else "base_url", 2048)
+    if not local:
+        base = base.rstrip("/")
     token = str(form.get("token", ""))
     ca = text_field(form, "ca_bundle_path", 2048, False) or None
     if (
-        kind not in ("github", "gitlab")
+        kind not in ("github", "gitlab", "local")
         or len(token) > 8192
         or any(ord(c) < 32 for c in token)
     ):
-        raise FormError("kind" if kind not in ("github", "gitlab") else "token", "请选择有效平台类型并检查令牌格式。")
+        raise FormError("kind" if kind not in ("github", "gitlab", "local") else "token", "请选择有效平台类型并检查令牌格式。")
     try:
-        _url_parts(base)
+        if local:
+            base = str(directory(request.app.state.settings.local_git_root, base))
+            browse(request.app.state.settings.local_git_root, base)
+        else:
+            _url_parts(base)
     except Exception:
         raise FormError(
-            "base_url", "平台地址须为无账号、查询参数的 HTTPS 实例地址。"
+            "local_path" if local else "base_url",
+            "目录不可读取或超出已挂载范围，请选择可用的本地目录。" if local else "平台地址须为无账号、查询参数的 HTTPS 实例地址。"
         ) from None
     has_repos = connection_id and session.scalar(
         select(Repository.id).where(Repository.connection_id == connection.id).limit(1)
@@ -479,7 +492,7 @@ def save_connection(
         kind != connection.kind or base != connection.base_url.rstrip("/")
     ):
         raise FormError(
-            "base_url", "已有仓库的连接不能更换平台或实例地址；请为另一实例创建新连接。"
+            "local_path" if local else "base_url", "已有仓库的连接不能更换平台或实例地址；请为另一实例创建新连接。"
         )
     changed = (
         not connection_id
@@ -494,9 +507,12 @@ def save_connection(
         base,
         ca,
     )
-    if token:
+    if local:
+        connection.encrypted_token, connection.ca_bundle_path = None, None
+        connection.auth_disabled, connection.last_checked_at, connection.last_error = False, utc_now(), None
+    elif token:
         connection.encrypted_token = request.app.state.settings.encrypt_token(token)
-    if changed:
+    if changed and not local:
         connection.auth_disabled, connection.last_checked_at, connection.last_error = (
             True,
             utc_now(),
@@ -511,7 +527,15 @@ def save_connection(
         {"credential_changed": bool(token)},
     )
     commit(session)
-    return RedirectResponse(f"/admin/connections/{connection.id}", 303)
+    return RedirectResponse(f"/admin/connections/{connection.id}" + ("/repositories" if local else ""), 303)
+
+
+@router.get("/local/directories")
+def local_directories(request: Request):
+    try:
+        return browse(request.app.state.settings.local_git_root, request.query_params.get("path"))
+    except Exception:
+        raise HTTPException(400, "目录不可读取或超出已挂载范围，请选择可用的本地目录。") from None
 
 
 @router.post("/connections/{connection_id}/check")
@@ -534,7 +558,7 @@ def check_connection(
     if failed:
         connection.auth_disabled, connection.last_error, connection.last_checked_at = (
             True,
-            "连接检查失败，请检查凭据、地址、网络与 CA。",
+            "本地目录检查失败，请检查只读映射和目录权限。" if connection.kind == "local" else "连接检查失败，请检查凭据、地址、网络与 CA。",
             utc_now(),
         )
         audit(session, user, "connection.check_failed", connection)
@@ -546,6 +570,7 @@ def check_connection(
             user,
             connection=connection,
             check_result=None,
+            local_git_root=request.app.state.settings.local_git_root,
             status_code=400,
         )
     connection.auth_disabled, connection.last_error, connection.last_checked_at = (
@@ -567,6 +592,7 @@ def check_connection(
         user,
         connection=connection,
         check_result=result,
+        local_git_root=request.app.state.settings.local_git_root,
         notice="连接检查成功；已安排关联仓库重新分析。",
     )
 
@@ -584,7 +610,15 @@ def remote_repositories(
     try:
         with provider_for(request, connection) as provider:
             repos = list(provider.repositories())
+            scan_incomplete = connection.kind == "local" and provider.scan_incomplete
     except Exception:
+        if connection.kind == "local":
+            return render(
+                request, "admin_connection.html", session, user, connection=connection,
+                check_result=None, local_git_root=request.app.state.settings.local_git_root,
+                notice="本地仓库扫描失败，请检查目录权限或 Git 元数据，或选择更小的目录。",
+                status_code=400,
+            )
         raise HTTPException(400, "平台仓库读取失败，请检查连接或稍后重试。") from None
     page = number(request.query_params.get("page"))
     search = request.query_params.get("q", "").strip()[:255]
@@ -601,6 +635,7 @@ def remote_repositories(
         imported_ids=imported_ids,
         import_search=search,
         selected_project=request.query_params.get("project_id", ""),
+        scan_incomplete=scan_incomplete,
     )
 
 
@@ -632,8 +667,9 @@ def import_repositories(
                 record = provider.repository(external_id)
                 if record.external_id != external_id:
                     raise ValueError("Identity changed")
-                validate_remote_url(record.clone_url, provider.web_root)
-                validate_remote_url(record.web_url, provider.web_root)
+                if connection.kind != "local":
+                    validate_remote_url(record.clone_url, provider.web_root)
+                    validate_remote_url(record.web_url, provider.web_root)
                 metadata.append(record)
     except Exception:
         raise FormError(

@@ -232,3 +232,83 @@ class AuditEvent(Base):
     entity_id: Mapped[int | None] = mapped_column(Integer)
     details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
+
+
+class GitTag(Base):
+    __tablename__ = "git_tags"
+    __table_args__ = (UniqueConstraint("repository_id", "name"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id"), index=True)
+    name: Mapped[str] = mapped_column(String(1024))
+    object_oid: Mapped[str] = mapped_column(String(128))
+    commit_oid: Mapped[str] = mapped_column(String(128))
+    subject: Mapped[str] = mapped_column(Text, default="")
+    commit_time: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ReleaseSource(Base):
+    """Optional platform metadata for a local repository; never a clone source."""
+    __tablename__ = "release_sources"
+    repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id"), primary_key=True)
+    connection_id: Mapped[int] = mapped_column(ForeignKey("platform_connections.id"))
+    external_id: Mapped[str] = mapped_column(String(255))
+    full_name: Mapped[str] = mapped_column(String(1024))
+    records: Mapped[list] = mapped_column(JSON, default=list)
+    synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    error: Mapped[str | None] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class ReleasePlan(Base):
+    __tablename__ = "release_plans"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    scheduled_date: Mapped[str] = mapped_column(String(10))
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Tokyo")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    items: Mapped[list["ReleaseItem"]] = relationship(cascade="all, delete-orphan", order_by="ReleaseItem.id")
+
+
+class ReleaseItem(Base):
+    __tablename__ = "release_items"
+    __table_args__ = (UniqueConstraint("plan_id", "repository_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("release_plans.id"), index=True)
+    repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id"), index=True)
+    branch_name: Mapped[str] = mapped_column(String(1024))
+    tag_name: Mapped[str | None] = mapped_column(String(1024))
+    tag_oid: Mapped[str | None] = mapped_column(String(128))
+    commit_oid: Mapped[str | None] = mapped_column(String(128))
+    subject: Mapped[str] = mapped_column(Text, default="")
+    commit_time: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    target_branch: Mapped[str] = mapped_column(String(1024))
+    mr_id: Mapped[str | None] = mapped_column(String(255))
+    mr_connection_id: Mapped[int | None] = mapped_column(ForeignKey("platform_connections.id"))
+    mr_repository_id: Mapped[str | None] = mapped_column(String(255))
+    deployed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    merged_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    merge_evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Deployment(Base):
+    """Append-only, project-scoped production history, including rollbacks."""
+    __tablename__ = "deployments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id"), index=True)
+    release_item_id: Mapped[int | None] = mapped_column(ForeignKey("release_items.id"), unique=True)
+    branch_name: Mapped[str] = mapped_column(String(1024))
+    tag_name: Mapped[str | None] = mapped_column(String(1024))
+    commit_oid: Mapped[str] = mapped_column(String(128))
+    subject: Mapped[str] = mapped_column(Text, default="")
+    deployed_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    notes: Mapped[str] = mapped_column(Text, default="")
+    rollback_of_id: Mapped[int | None] = mapped_column(ForeignKey("deployments.id"))

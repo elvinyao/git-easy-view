@@ -89,7 +89,7 @@ class FileChange:
     status: str
 
 
-def _environment(extra: dict[str, str] | None, *, allow_file_transport: bool) -> dict[str, str]:
+def _environment(extra: dict[str, str] | None, *, allow_file_transport: bool, local_only: bool = False) -> dict[str, str]:
     # Avoid ambient Git configuration, replacement objects and prompts.
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -102,7 +102,7 @@ def _environment(extra: dict[str, str] | None, *, allow_file_transport: bool) ->
         "GIT_OPTIONAL_LOCKS": "0",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_PROTOCOL_FROM_USER": "0",
-        "GIT_ALLOW_PROTOCOL": "https:file" if allow_file_transport else "https",
+        "GIT_ALLOW_PROTOCOL": "file" if local_only else "https:file" if allow_file_transport else "https",
     }
     # Corporate proxies and trusted roots are deployment settings. Inherit only
     # these transport options, never ambient Git config or verification bypasses.
@@ -119,7 +119,7 @@ def _environment(extra: dict[str, str] | None, *, allow_file_transport: bool) ->
 
 def _run(
     args: list[str], *, env: dict[str, str] | None = None,
-    allow_file_transport: bool = False, timeout: float = 30,
+    allow_file_transport: bool = False, local_only: bool = False, timeout: float = 30,
     allowed_codes: tuple[int, ...] = (0,),
 ) -> tuple[int, str]:
     command = [
@@ -131,7 +131,7 @@ def _run(
         process = subprocess.Popen(
             command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=_environment(env, allow_file_transport=allow_file_transport),
+            env=_environment(env, allow_file_transport=allow_file_transport, local_only=local_only),
             start_new_session=True,
             # A worker-only SIGKILL must not release the repository lock while
             # its orphan Git still mutates the bare cache. These descriptors
@@ -244,6 +244,28 @@ class GitService:
             state = "diverged"
         return ComparisonResult(source_oid, target_oid, ahead, behind, merge_bases, state)
 
+    def tags(self) -> list[dict]:
+        """Snapshot commit tags in one bounded read; ignore tree/blob tags."""
+        _, output = self._git("for-each-ref", f"--count={MAX_BRANCHES + 1}",
+            "--format=%(refname:strip=2)%00%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(committerdate:iso8601-strict)%00%(*committerdate:iso8601-strict)%00%(subject)%00%(*subject)", "refs/tags")
+        lines = [line for line in output.split("\n") if line]
+        if len(lines) > MAX_BRANCHES:
+            raise GitOutputLimit("Tag count limit exceeded")
+        result = []
+        for line in lines:
+            name, obj, kind, peeled, peeled_kind, date, peeled_date, subject, peeled_subject = line.split("\0", 8)
+            if kind == "tag":
+                if peeled_kind != "commit":
+                    continue
+                oid, date, subject = peeled, peeled_date, peeled_subject
+            elif kind == "commit":
+                oid = obj
+            else:
+                continue
+            result.append(dict(name=name, object_oid=obj, commit_oid=oid,
+                               commit_time=datetime.fromisoformat(date), subject=subject))
+        return result
+
     def commits(self, source_oid: str, target_oid: str, limit: int = 50) -> list[CommitInfo]:
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= MAX_COMMITS:
             raise ValueError(f"limit must be between 1 and {MAX_COMMITS}")
@@ -348,5 +370,21 @@ def fetch_bare(
     _, url = _run(["-C", str(path), "remote", "get-url", remote])
     _validate_transport(url.strip(), allow_file_transport=allow_file_transport)
     _run(["-C", str(path), "fetch", "--prune", "--force", "--no-tags", remote,
-          "+refs/heads/*:refs/heads/*"], env=env,
+          "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"], env=env,
          allow_file_transport=allow_file_transport, timeout=120)
+
+
+def clone_local_bare(source: str, destination: Path, **kwargs) -> None:
+    """Copy approved local objects without hardlinks, hooks or network protocols."""
+    _run(['-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always',
+          '-c', f'safe.directory={source}', 'clone', '--bare', '--no-local', '--',
+          source, str(destination)], allow_file_transport=True, local_only=True, timeout=120)
+    _run(['-C', str(destination), 'config', 'remote.origin.fetch', '+refs/heads/*:refs/heads/*'])
+
+
+def fetch_local_bare(path: Path, **kwargs) -> None:
+    _, source = _run(['-C', str(path), 'remote', 'get-url', 'origin'])
+    _run(['-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always',
+          '-c', f'safe.directory={source.strip()}', '-C', str(path),
+          'fetch', '--prune', '--force', '--no-tags', 'origin', '+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*'],
+         allow_file_transport=True, local_only=True, timeout=120)

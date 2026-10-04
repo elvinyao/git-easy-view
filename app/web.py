@@ -204,26 +204,29 @@ def repository_statuses(session, repositories, *, now=None):
     if not repositories:
         return {}
     now = now or utc_now()
-    disabled = dict(
+    connections = {
+        row.id: row for row in
         session.execute(
-            select(PlatformConnection.id, PlatformConnection.auth_disabled).where(
+            select(PlatformConnection.id, PlatformConnection.auth_disabled, PlatformConnection.kind).where(
                 PlatformConnection.id.in_({r.connection_id for r in repositories})
             )
         ).all()
-    )
+    }
     result = {}
     for repo in repositories:
+        connection = connections.get(repo.connection_id)
+        local = bool(connection and connection.kind == "local")
         threshold = max(2 * repo.sync_interval_seconds, 60)
         git_aged = bool(
             repo.git_synced_at
             and (now - repo.git_synced_at).total_seconds() > threshold
         )
         api_aged = bool(
-            repo.api_synced_at
+            not local and repo.api_synced_at
             and (now - repo.api_synced_at).total_seconds() > threshold
         )
         git_pending = repo.requested_generation > repo.snapshot_generation
-        api_pending = repo.requested_generation > repo.api_generation
+        api_pending = not local and repo.requested_generation > repo.api_generation
 
         def state(timestamp, error, aged, pending, missing_label):
             if error:
@@ -241,14 +244,14 @@ def repository_statuses(session, repositories, *, now=None):
             git_state=state(
                 repo.git_synced_at, repo.sync_error, git_aged, git_pending, "正在导入"
             ),
-            api_state=state(
+            api_state="不适用" if local else state(
                 repo.api_synced_at, repo.api_error, api_aged, api_pending, "尚未同步"
             ),
             git_aged=git_aged,
             api_aged=api_aged,
-            missing=repo.git_synced_at is None or repo.api_synced_at is None,
+            missing=repo.git_synced_at is None or (not local and repo.api_synced_at is None),
             pending=git_pending or api_pending,
-            disabled=disabled.get(repo.connection_id, True),
+            disabled=connection.auth_disabled if connection else True,
             error=bool(repo.sync_error or repo.api_error),
         )
     return result

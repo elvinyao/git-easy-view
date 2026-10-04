@@ -9,6 +9,7 @@ from app.db import get_session
 from app.job_progress import progress_batch, progress_context
 from app.models import ProjectRepository, Repository, User
 from app.project_overview import repository_overview, snapshot_views
+from app.releases import project_release_summary
 from app.web import (
     filtered,
     query_state,
@@ -122,12 +123,15 @@ def project_page(
                          closed_repos=",".join(map(str, sorted(query["closed_repos"] - {repo.id})))) if query["q"] or query["role"] or query["relation"] else ""
         return f"{base}#{group}-{repo.id}"
 
+    production, upcoming = project_release_summary(session, project.id)
     return render(
         request,
         "project.html",
         session,
         user,
         project=project,
+        production=production,
+        upcoming=upcoming,
         job_progress=progress_context(session, request, project_id=project.id, user=user),
         repositories=displayed,
         total=count,

@@ -5,7 +5,9 @@
     <a href="/admin/connections/{{ connection.id }}">{{ connection.name }}</a> {{ t('/ 仓库导入') }}
   </p>
   <h1>{{ t('选择仓库') }}</h1>
-  <p class="muted">{{ t('每次最多 50 个。提交时重新向平台确认仓库身份与地址；已导入仓库会复用分析副本。') }}</p>
+  {% if scan_incomplete %}<div class="notice" role="status">{{ t('部分目录未扫描：达到扫描上限或目录、Git 元数据不可读取。可导入已找到的仓库，或返回选择更小的目录继续扫描。') }} <a href="/admin/connections/{{ connection.id }}">{{ t('选择本地目录') }}</a></div>{% endif %}
+  <p class="muted">{{ t('每次最多 50 个。提交时重新检查本地 Git 目录；已导入仓库会复用分析副本。') if connection.kind == 'local' else t('每次最多 50 个。提交时重新向平台确认仓库身份与地址；已导入仓库会复用分析副本。') }}</p>
+  {% if connection.kind == 'local' %}<p class="help">{{ t('只分析本地分支和已提交历史；未提交的工作区变更不包含在快照中。') }}</p>{% endif %}
   <section class="panel detail-section">
     <form method="get" action="/admin/connections/{{ connection.id }}/repositories" class="inline-form import-search">
       <label>{{ t('搜索仓库或命名空间') }}<input name="q" value="{{ import_search }}" maxlength="255" type="search"></label>
@@ -42,7 +44,7 @@
             <tr>
               <th>{{ t('选择仓库') }}</th>
               <th>{{ t('默认分支') }}</th>
-              <th>{{ t('平台 ID') }}</th>
+              <th>{{ t('相对目录') if connection.kind == 'local' else t('平台 ID') }}</th>
             </tr>
           </thead>
           <tbody>

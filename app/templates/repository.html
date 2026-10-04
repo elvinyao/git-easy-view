@@ -15,11 +15,11 @@
       <span>{{ t('Git 同步') }}</span><strong class="date-value">{{ repo.git_synced_at|date }}</strong>
     </div>
     <div>
-      <span>{{ t('API 同步') }}</span><strong class="date-value">{{ repo.api_synced_at|date }}</strong>
+      <span>{{ t('API 同步') }}</span><strong class="date-value">{{ t('不适用') if repo.connection.kind == 'local' else repo.api_synced_at|date }}</strong>
     </div>
   </div>
   <nav class="admin-tabs">
-    <span>{{ t('分支与提交关系') }}</span><a href="/repositories/{{ repo.id }}/pull-requests{{ query_url() }}">{{ t('PR / MR 平台记录 →') }}</a>
+    <span>{{ t('分支与提交关系') }}</span>{% if repo.connection.kind != 'local' %}<a href="/repositories/{{ repo.id }}/pull-requests{{ query_url() }}">{{ t('PR / MR 平台记录 →') }}</a>{% endif %}
   </nav>
   {% include 'filters.html' %}
   <section class="panel">

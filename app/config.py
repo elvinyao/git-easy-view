@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", repr=False)
     job_backend: Literal["database", "redis"] = "database"
     cache_root: str = "./data/git"
+    local_git_root: str = "/data/local-git"
+    local_git_directory: str | None = None  # Host mapping label; never used to access files.
     queue_name: str = "git-sync"
     job_timeout_seconds: int = 3600
     scheduler_interval_seconds: int = 15

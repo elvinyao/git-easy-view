@@ -56,7 +56,7 @@ def test_real_postgres_migrations_up_down_up(postgres):
     command.check(config)
     engine = make_engine(settings.database_url)
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
     engine.dispose()
 
 

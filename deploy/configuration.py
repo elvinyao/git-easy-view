@@ -155,6 +155,7 @@ def prepare(args) -> tuple[Path, bool]:
             file.write("".join(f"{key}={value}\n" for key, value in values.items()))
         created = True
     Path("runtime/ca").mkdir(parents=True, exist_ok=True)
+    Path("runtime/local-repositories").mkdir(parents=True, exist_ok=True)
     # This file only reserves local example passwords; seeding remains explicit.
     access = Path("runtime/demo-access.json")
     if target == Path("runtime/local.env") and not args.production and not access.exists():

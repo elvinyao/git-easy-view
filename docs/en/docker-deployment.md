@@ -4,6 +4,10 @@
 
 For standalone deployment, use the [deploy/ deployment guide](../../deploy/README.en.md). Run `bash deploy/deploy.sh`, add `--init` for configuration, and use `bash deploy/deploy.sh compose ...` for operations. It supports HTTP/HTTPS proxies, company CAs, and direct access on personal computers without `.agent/run.sh`. This page documents the development runner's deployment, database migration, and operations workflows.
 
+## Release management upgrade
+
+Use the existing deployment commands; deployment applies migration `0003` automatically. New tables store tags, release plans and production history without new containers or environment variables. Back up SQLite using the backup section before upgrading; do not downgrade the schema after recording releases. Tags appear after the next repository synchronization, which administrators can also trigger manually. Local MR bindings use existing platform connections and container proxy/CA settings. Code directories remain mounted read-only.
+
 ## 1. Prerequisites and single-container layout
 
 Start Docker Engine 20.10+ (or a corresponding Docker Desktop release), enable BuildKit, and run commands from the repository root. Inspect or edit source on the host; execute project commands through `bash .agent/run.sh ...`.
@@ -159,6 +163,18 @@ Tokens are stored in the database with Fernet encryption. Preserve and back up `
 | `GEV_SESSION_MAX_AGE` | 43200 seconds |
 
 The worker checks queued jobs every second. Repository synchronization defaults to 300 seconds, configurable by administrators. Production accepts absolute SQLite file paths and still requires stable keys and Secure cookies. PostgreSQL/RQ adapters remain for compatibility, outside the default deployment.
+
+### 6.1 Mount local repositories
+
+Use an editor to add an existing host repository root to the relevant `runtime/local.env` (or `runtime/production.env`):
+
+```dotenv
+GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace
+```
+
+Apply it with `bash .agent/run.sh deploy`; add `--no-build` for mapping-only changes after updating the image. Without this setting, an empty `runtime/local-repositories/` directory is used. Both deployment methods mount the root read-only at `/data/local-git`, limiting the administrator's directory picker to that root. Docker Desktop must allow sharing the host directory; Linux permissions must allow directory traversal and reading Git files.
+
+The source directory is never used for cache writes or remote fetch/push. Synchronization copies local Git objects into `git-cache`. Do not point an existing source at another set of same-named repositories; preserve the directory structure during migration or create a new source.
 
 ## 7. Daily operations and diagnosis
 

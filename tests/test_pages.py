@@ -893,7 +893,8 @@ def test_sync_status_batches_connections_and_shows_threshold_floor(client, app, 
         assert len(statements) <= 6
         statements.clear()
         assert client.get(f"/projects/{pages['project']}").status_code == 200
-        assert len(statements) <= 10
+        # Production history and release plans each add one project-wide query.
+        assert len(statements) <= 12
     finally:
         event.remove(app.state.engine, "before_cursor_execute", observe)
     assert (

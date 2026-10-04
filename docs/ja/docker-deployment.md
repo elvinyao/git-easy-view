@@ -4,6 +4,10 @@
 
 独立したデプロイには [deploy/ デプロイガイド](../../deploy/README.ja.md)を使用してください。入口は `bash deploy/deploy.sh`、初期設定は `--init`、運用は `bash deploy/deploy.sh compose ...` です。HTTP/HTTPS プロキシ、社内 CA、個人 PC の直接接続に対応し、`.agent/run.sh` を経由しません。本ページは開発 runner でのデプロイ、DB 移行、運用手順を説明します。
 
+## リリース管理への更新
+
+従来のデプロイコマンドでマイグレーション `0003` を自動実行します。Tag、計画、本番履歴用のテーブルを追加し、新しいコンテナや環境変数は不要です。更新前にバックアップ節の手順で SQLite を保存し、リリース記録後のスキーマ降格は避けてください。次回同期後に Tag が表示され、管理者が手動同期することもできます。ローカル MR 連携は既存接続とコンテナのプロキシ・CA 設定を使います。コードディレクトリは読み取り専用のままです。
+
 ## 1. 必要環境と単一コンテナ構成
 
 Docker Engine 20.10 以降（または対応する Docker Desktop）を起動し、BuildKit を有効にして、リポジトリのルートから実行します。ホストではソースの参照・編集だけを行い、実行には `bash .agent/run.sh ...` を使います。
@@ -159,6 +163,18 @@ token は Fernet で暗号化して DB に保存します。`GEV_CREDENTIAL_KEY`
 | `GEV_SESSION_MAX_AGE` | 43200 秒 |
 
 キューは毎秒確認します。リポジトリの同期間隔は既定 300 秒で管理画面から変更します。本番は絶対パスの SQLite を許可しますが、安定したキーと Secure cookie は必須です。PostgreSQL/RQ アダプターは互換用途として残しています。
+
+### 6.1 ローカルリポジトリのマウント
+
+エディターで対象の `runtime/local.env`（本番は `runtime/production.env`）に、ホスト側の既存リポジトリルートを追加します。
+
+```dotenv
+GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace
+```
+
+`bash .agent/run.sh deploy` で反映します。イメージ更新済みでマウントだけを変更する場合は `--no-build` を追加できます。未設定時は空の `runtime/local-repositories/` を使います。通常・独立デプロイとも `/data/local-git` に読み取り専用でマウントし、管理者はこの範囲内を選択します。Docker Desktop のファイル共有を許可し、Linux ではディレクトリの探索と Git ファイルの読み取り権限を用意してください。
+
+元ディレクトリへのキャッシュ書き込みや remote への fetch/push は行いません。同期はローカル Git オブジェクトを `git-cache` にコピーします。既存の取得元を同名の別リポジトリ群へ切り替えないでください。移行時はディレクトリ構成を維持するか、新しい取得元を作成します。
 
 ## 7. 日常操作と診断
 

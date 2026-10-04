@@ -44,6 +44,7 @@ def test_first_deployment_is_valid_and_redeployment_preserves_secrets(deployment
     assert values["GEV_APP_IMAGE"] == "git-easy-view:local"
     assert target.stat().st_mode & 0o777 == 0o600
     assert Path("runtime/demo-access.json").stat().st_mode & 0o777 == 0o600
+    assert Path("runtime/local-repositories").is_dir()
     assert setup.main([]) == 0
     assert target.read_bytes() == original
     assert Path("runtime/demo-access.json").read_bytes() == access

@@ -71,7 +71,7 @@ def test_sqlite_transfer_preserves_rows_and_refuses_overwrite(system, remote, mo
     # Fixture uses metadata.create_all; stamp its known matching revision.
     with system.engine.begin() as connection:
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
-        connection.execute(text("INSERT INTO alembic_version VALUES ('0002')"))
+        connection.execute(text("INSERT INTO alembic_version VALUES ('0003')"))
     path = Path(__file__).resolve().parents[1] / ".agent/migrate-sqlite.py"
     spec = importlib.util.spec_from_file_location("sqlite_transfer", path)
     module = importlib.util.module_from_spec(spec)

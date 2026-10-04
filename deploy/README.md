@@ -93,6 +93,12 @@ bash deploy/deploy.sh --help
 
 个人电脑也使用同一个 `bash deploy/deploy.sh`，将代理留空、CA 目录留空即可。脚本使用独立的 `-intranet` 镜像标签；第一次使用必须构建，之后才能用 `--no-build`。此入口支持当前 SQLite 单容器模式；旧 PostgreSQL 实例先按[数据库迁移指南](../docs/zh-CN/docker-deployment.md)完成 `--migrate-sqlite`，不要直接改数据库 URL。
 
+### 3.1 使用服务器上的本地 Git 仓库
+
+在 `runtime/local.env`（生产为 `runtime/production.env`）设置已有目录，例如 `GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace`，然后重新运行 `bash deploy/deploy.sh`。镜像已更新、只改映射时可加 `--no-build`。新版 Compose 与旧版兼容配置都会将目录只读映射到 `/data/local-git`，未设置时使用空的 `runtime/local-repositories/`，不增加常驻容器。
+
+管理员在添加来源页选择“本地 Git 目录”，浏览子目录、扫描并批量导入。无需 token 或远程连接。目录必须可被 Docker 读取，导入后保持映射稳定。详见[本地导入说明](../docs/zh-CN/user-guide.md#71-批量添加本地-git-仓库)。
+
 ## 4. 正式内网服务与独立实例
 
 ```bash

@@ -1,0 +1,48 @@
+{% macro field_error(name) %}
+{% if form_errors and form_errors.get(name) %}<span class="field-error" data-field-error="{{ name }}">{{ t(form_errors[name]) }}</span>{% endif %}
+{% endmacro %}
+
+{% macro version_fields(options, prefix='', item=none, required=false) %}
+{% set values = form_values|default({}) %}
+{% set branch_value = values.get(prefix ~ 'branch', item.branch_name if item else options.recommended_branch|default('')) %}
+{% set tag_value = values.get(prefix ~ 'tag', (item.tag_name or '') if item else '') %}
+{% set pinned = values.get(prefix ~ 'oid', (item.commit_oid or '') if item else '') %}
+<div class="version-picker" data-version-fields>
+  <div class="release-fields">
+    <div class="search-select">
+      <label for="field-{{ prefix }}branch">{{ t('发布分支') }}</label>
+      <input type="search" data-select-search="field-{{ prefix }}branch" placeholder="{{ t('搜索分支') }}" aria-label="{{ t('搜索分支') }}" autocomplete="off">
+      <select data-branch-input id="field-{{ prefix }}branch" name="{{ prefix }}branch" {% if required %}required{% endif %} {% if form_errors and form_errors.get(prefix ~ 'branch') %}aria-invalid="true"{% endif %}>
+        <option value="">{{ t('请选择分支') }}</option>
+        {% if branch_value and branch_value not in options.branches|map(attribute='name')|list %}<option value="{{ branch_value }}" selected data-unavailable>{{ branch_value }} · {{ t('已失效，请重新选择') }}</option>{% endif %}
+        {% for b in options.branches %}<option value="{{ b.name }}" data-oid="{{ b.head_oid or '' }}" data-subject="{{ options.branch_subjects.get(b.head_oid, item.subject if item and item.commit_oid == b.head_oid else '') }}" data-time="{{ b.commit_time|date }}" {% if b.name == branch_value %}selected{% endif %}>{{ b.name }} · {{ b.head_oid[:8] if b.head_oid else '—' }}</option>{% endfor %}
+      </select>
+      {{ field_error(prefix ~ 'branch') }}
+    </div>
+    <div class="search-select">
+      <label for="field-{{ prefix }}tag">Tag <small>{{ t('发布版本') }}</small></label>
+      <input type="search" data-select-search="field-{{ prefix }}tag" placeholder="{{ t('搜索 Tag 或提交摘要') }}" aria-label="{{ t('搜索 Tag 或提交摘要') }}" autocomplete="off">
+      <select data-tag-input id="field-{{ prefix }}tag" name="{{ prefix }}tag" {% if form_errors and form_errors.get(prefix ~ 'tag') %}aria-invalid="true"{% endif %}>
+        <option value="">{{ t('稍后选择 Tag') }}</option>
+        {% if tag_value and tag_value not in options.tags|map(attribute='name')|list %}<option value="{{ tag_value }}" selected data-unavailable>{{ tag_value }} · {{ t('已失效，请重新选择') }}</option>{% endif %}
+        {% for tag in options.tags %}<option value="{{ tag.name }}" data-oid="{{ tag.commit_oid }}" data-subject="{{ tag.subject }}" data-time="{{ tag.commit_time|date }}" {% if tag.name == tag_value %}selected{% endif %}>{{ tag.name }} · {{ tag.commit_oid[:8] }} · {{ tag.subject[:90] }}</option>{% endfor %}
+      </select>
+      {{ field_error(prefix ~ 'tag') }}
+    </div>
+  </div>
+  <input type="hidden" data-pinned-oid name="{{ prefix }}oid" value="{{ pinned }}">
+  <div class="version-preview" aria-live="polite"><span class="muted">{{ t('所选提交') }}</span><code data-version-hash>{{ pinned[:8] if pinned else '—' }}</code><span data-version-subject>{{ item.subject if item and item.commit_oid == pinned else '' }}</span><small data-version-time>{{ item.commit_time|date if item and item.commit_oid == pinned and item.commit_time is defined else '' }}</small><p class="release-warning" data-version-changed hidden>{{ t('版本已变化，保留原 hash。请重新选择以确认新版本。') }}</p></div>
+  {{ field_error(prefix ~ 'oid') }}
+</div>
+{% endmacro %}
+
+{% macro mr_select(options, name, selected=none, input_id=none, recover=true, branch='', target='') %}
+{% set selected = (form_values|default({})).get(name, selected) if recover else selected %}
+<select id="{{ input_id or 'field-' ~ name }}" name="{{ name }}" data-mr-select>
+  <option value="">{{ t('稍后关联，或使用人工确认') }}</option>
+  {% if selected and selected not in options.mrs|map(attribute='id')|list %}<option value="{{ selected }}" selected>{{ selected }} · {{ t('等待同步确认') }}</option>{% endif %}
+  {% for mr in options.mrs %}{% if not branch or mr.id == selected or (mr.source_branch == branch and mr.target_branch == target and mr.source_repo == options.external_id and mr.target_repo == options.external_id) %}<option value="{{ mr.id }}" data-source="{{ mr.source_branch }}" data-target="{{ mr.target_branch }}" data-oid="{{ mr.source_oid or '' }}" data-same-repo="{{ '1' if mr.source_repo == options.external_id and mr.target_repo == options.external_id else '0' }}" {% if selected == mr.id %}selected{% endif %}>{{ mr.source_branch }} → {{ mr.target_branch }} · {{ mr.title }}</option>{% endif %}{% endfor %}
+</select>
+{% if recover %}{{ field_error(name) }}{% endif %}
+{% endmacro %}
+{% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endmacro %}

@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block extra_head %}<link rel="stylesheet" href="/static/releases.css"><script defer src="/static/releases.js"></script>{% endblock %}
+{% block body_class %}release-page{% endblock %}
+{% block content %}
+<nav class="release-nav"><a href="/projects/{{ project.id }}">← {{ project.name }}</a><a href="/projects/{{ project.id }}/releases">{{ t('发布管理') }}</a></nav>
+{% set saved = request.query_params.get('saved', '') %}
+{% set notices = {'created':'发布草稿已保存。', 'saved':'修改已保存。', 'started':'计划已启动。实际上线后，请确认上线版本。', 'deployed':'已记录上线，本番版本已更新。', 'merged':'已记录合入依据。', 'bound':'MR 关联已保存。', 'production':'本番版本已记录。', 'rollback':'回滚记录已保存。', 'source':'平台仓库已绑定，正在读取 MR。', 'unbound':'平台绑定已解除。', 'cancelled':'计划已取消，上线历史仍然保留。'} %}
+{% if saved in notices %}<div class="notice release-success" role="status">✓ {{ t(notices[saved]) }}</div>{% endif %}
+<script type="application/json" id="release-messages">{{ {'branchRequired':t('请为选中仓库选择分支。'), 'tagPending':t('Tag 待定'), 'selectRepository':t('请选择平台仓库'), 'loading':t('正在读取仓库…'), 'lookupFailed':t('读取失败，请重试。已保留当前选择。'), 'noRepositories':t('未找到可访问的仓库，请检查连接权限。'), 'partial':t('列表未全部显示，可在高级设置中填写仓库 ID。'), 'loaded':t('已读取仓库，可以按名称搜索。'), 'confirmCancel':t('确认取消此发布计划？已经记录的上线和历史会保留。'), 'confirmUnbind':t('确认解除平台绑定？本地代码和已有上线历史会保留。')}|tojson }}</script>
+{% block release_content %}{% endblock %}
+{% endblock %}

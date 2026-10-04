@@ -25,12 +25,13 @@
   <div class="notice">{{ t('有新的分析请求尚未发布，仍显示上次快照（{date}）。', date=repo.git_synced_at|date) }}</div>
 {% endif %}
 {% if sync_status.disabled %}
-  <div class="notice danger">{{ t('连接凭据待恢复：自动同步已暂停，需管理员检查连接。本地已缓存证据仍可查看。') }}</div>
+  <div class="notice danger">{{ t('本地目录已暂停，请由管理员检查目录映射和权限。') if repo.connection.kind == 'local' else t('连接凭据待恢复：自动同步已暂停，需管理员检查连接。本地已缓存证据仍可查看。') }}</div>
 {% endif %}
 {% if repo.api_error %}
-  <div class="notice danger">{{ t('API 同步失败，平台记录保留到 {date}，可能已过期。', date=repo.api_synced_at|date) }}</div>
+  <div class="notice danger">{{ t('本地目录检查失败，请检查只读映射和目录权限。') if repo.connection.kind == 'local' else t('API 同步失败，平台记录保留到 {date}，可能已过期。', date=repo.api_synced_at|date) }}</div>
 {% endif %}
 <p class="coverage">
+  {% if repo.connection.kind == 'local' %}{{ t('本地 Git 目录：平台 API 与 PR/MR 记录不适用。只读取本地已提交历史。') }}{% else %}
   {{ t('平台覆盖：') }}
   {% if repo.api_coverage_since %}
     {{ t('全部开放记录 + {date} 以来更新的关闭／合并记录', date=repo.api_coverage_since|date) }}
@@ -38,4 +39,5 @@
     {{ t('尚未确认') }}
   {% endif %}
   {{ t('。未找到记录不代表从未合并。') }}
+  {% endif %}
 </p>

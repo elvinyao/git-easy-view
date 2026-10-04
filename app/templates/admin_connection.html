@@ -1,26 +1,29 @@
 {% extends 'base.html' %}
 {% import 'form_fields.html' as f with context %}
+{% set source_kind = form_values.get('kind', connection.kind if connection else request.query_params.get('kind', 'github')) %}
+{% block extra_head %}<script defer src="/static/local-directory.js"></script>{% endblock %}
 {% block content %}
   <p class="eyebrow">
     <a href="/admin">{{ t('管理工作台') }}</a> {{ t('/ 平台连接') }}
   </p>
-  <h1>{{ connection.name if connection else t('添加平台连接') }}</h1>
+  <h1>{{ connection.name if connection else t('添加仓库来源') }}</h1>
   {% if connection and connection.last_error %}<div class="notice danger">{{ t(connection.last_error) }}</div>{% endif %}
   {% if check_result %}
     <section class="panel detail-section">
       <h2>{{ t('连接检查结果') }}</h2>
-      <p>
+      {% if check_result.local %}<p>{{ t('本地目录可读取；不访问远程平台。') }}</p>{% else %}<p>
         {{ t('身份：') }}{{ check_result.login or check_result.username or check_result.identity or check_result.external_user_id or t('未知') }}
       </p>
       <p>{{ t('平台版本：') }}{{ check_result.version or t('未知') }}</p>
       <p>{{ t('可选能力：') }}{{ check_result.capabilities if check_result.capabilities else t('未知（平台未提供）') }}</p>
+      {% endif %}
     </section>
   {% endif %}
   <div class="admin-grid">
     <section class="panel">
       <form method="post"
             action="{{ '/admin/connections/' ~ connection.id if connection else '/admin/connections' }}"
-            class="stack">
+            class="stack" data-source-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>
           {{ t('连接名称') }}
@@ -30,43 +33,56 @@
                  required>
         </label>
         <label>
-          {{ t('平台') }}
+          {{ t('仓库来源') }}
           <select name="kind" {{ f.attrs('kind') }}>
             <option value="github"
-                    {% if form_values.get('kind', connection.kind if connection else 'github')=='github' %}selected{% endif %}>
+                    {% if source_kind == 'github' %}selected{% endif %}>
               GitHub / GitHub Enterprise
             </option>
             <option value="gitlab"
-                    {% if form_values.get('kind', connection.kind if connection else '')=='gitlab' %}selected{% endif %}>{{ t('GitLab / 自建 GitLab') }}</option>
+                    {% if source_kind == 'gitlab' %}selected{% endif %}>{{ t('GitLab / 自建 GitLab') }}</option>
+            <option value="local" {% if source_kind == 'local' %}selected{% endif %}>{{ t('本地 Git 目录') }}</option>
           </select>
         </label>
-        <label>
+        <label data-remote-source {% if source_kind == 'local' %}hidden{% endif %}>
           {{ t('HTTPS 实例地址') }}
           <input name="base_url"
                  {{ f.attrs('base_url') }}
                  type="url"
-                 value="{{ f.value('base_url', connection.base_url if connection else '') }}"
+                 value="{{ f.value('base_url', connection.base_url if connection and connection.kind != 'local' else '') }}"
                  placeholder="{{ t('https://github.com 或 https://gitlab.example.com') }}"
-                 required
+                 {% if source_kind == 'local' %}disabled{% else %}required{% endif %}
                  maxlength="2048">
         </label>
-        <label>
+        <label data-remote-source {% if source_kind == 'local' %}hidden{% endif %}>
           {{ t('访问令牌（留空保留已保存令牌）') if connection else t('访问令牌（留空使用匿名访问）') }}
           <input name="token"
                  {{ f.attrs('token') }}
                  type="password"
+                 {% if source_kind == 'local' %}disabled{% endif %}
                  autocomplete="new-password"
                  maxlength="8192">
         </label>
-        <label>
+        <label data-remote-source {% if source_kind == 'local' %}hidden{% endif %}>
           {{ t('公司 CA 文件路径（可选）') }}
           <input name="ca_bundle_path"
+                 {% if source_kind == 'local' %}disabled{% endif %}
                  {{ f.attrs('ca_bundle_path') }} value="{{ f.value('ca_bundle_path', connection.ca_bundle_path or '' if connection else '') }}"
                  placeholder="/certs/company-ca.pem"
                  maxlength="2048">
         </label>
-        <p class="help">{{ t('CA 文件须挂载到 Web 与 Worker 容器。TLS 验证始终启用；凭据变更后须检查连接才能恢复同步。') }}</p>
-        <button class="primary">{{ t('保存连接') }}</button>
+        <p class="help" data-remote-source {% if source_kind == 'local' %}hidden{% endif %}>{{ t('CA 文件须挂载到 Web 与 Worker 容器。TLS 验证始终启用；凭据变更后须检查连接才能恢复同步。') }}</p>
+        <section data-local-source {% if source_kind != 'local' %}hidden{% endif %}>
+          <label>{{ t('本地目录') }}<input name="local_path" {{ f.attrs('local_path') }}
+            {% if source_kind == 'local' %}required{% else %}disabled{% endif %}
+            value="{{ f.value('local_path', connection.base_url if connection and connection.kind == 'local' else local_git_root) }}" maxlength="2048"></label>
+          <button type="button" data-directory-open>{{ t('选择目录…') }}</button>
+          <p class="help">{{ t('选择已挂载目录中的子目录，递归扫描其中的 Git 仓库。无需令牌，不访问 remote，不修改工作区。') }}</p>
+          <p class="help">{{ t('可访问根目录：{path}', path=local_git_root) }}</p>
+          {% if request.app.state.settings.local_git_directory %}<p class="help">{{ t('服务器映射目录：{path}', path=request.app.state.settings.local_git_directory) }}</p>{% endif %}
+          <p class="help">{{ t('Docker 中的目录来自服务器只读映射；其他目录请先设置 GEV_LOCAL_GIT_DIRECTORY 并重新部署。') }}</p>
+        </section>
+        <button class="primary" data-source-save data-local-label="{{ t('保存目录并扫描仓库') }}" data-remote-label="{{ t('保存连接') }}">{{ t('保存目录并扫描仓库') if source_kind == 'local' else t('保存连接') }}</button>
       </form>
     </section>
     <section class="panel">
@@ -78,7 +94,7 @@
               action="/admin/connections/{{ connection.id }}/check"
               class="stack">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button>{{ t('检查身份与平台能力') }}</button>
+          <button>{{ t('检查目录可访问性') if connection.kind == 'local' else t('检查身份与平台能力') }}</button>
         </form>
         <p class="help">{{ t('检查成功后会重新安排关联仓库同步。') }}</p>
         {% if not connection.auth_disabled %}
@@ -88,8 +104,17 @@
           </p>
         {% endif %}
       {% else %}
-        <p class="muted">{{ t('先保存连接，再检查身份、选择仓库。') }}</p>
+        <p class="muted">{{ t('远程来源先保存并检查连接；本地来源保存目录后即可批量选择仓库。') }}</p>
       {% endif %}
     </section>
   </div>
+  <dialog class="directory-dialog" data-directory-dialog aria-labelledby="directory-dialog-title"
+    data-load-label="{{ t('正在读取目录…') }}" data-error-label="{{ t('目录不可读取或超出已挂载范围，请选择可用的本地目录。') }}"
+    data-empty-label="{{ t('没有可选择的子目录。') }}" data-git-label="{{ t('Git 仓库') }}">
+    <div class="section-heading"><h2 id="directory-dialog-title">{{ t('选择本地目录') }}</h2><button type="button" data-directory-close>{{ t('关闭') }}</button></div>
+    <p class="help" data-directory-current></p><p role="status" data-directory-status></p>
+    <div class="directory-actions"><button type="button" data-directory-parent>{{ t('上一级') }}</button><button type="button" data-directory-retry>{{ t('重试') }}</button></div>
+    <ul class="directory-list" data-directory-list></ul>
+    <button class="primary" type="button" data-directory-select>{{ t('使用此目录') }}</button>
+  </dialog>
 {% endblock %}

@@ -1,0 +1,57 @@
+{% extends 'release_base.html' %}
+{% from 'release_fields.html' import version_fields, mr_select, csrf, field_error with context %}
+{% block title %}{{ t('编辑发布草稿') if plan else t('创建 RLS 计划') }}{% endblock %}
+{% block release_content %}
+{% set values = form_values|default({}) %}
+<header class="release-heading"><div><p class="eyebrow">{{ project.name }} · RLS</p><h1>{{ t('编辑发布草稿') if plan else t('创建 RLS 计划') }}</h1><p class="muted">{{ t('先选本次发布的仓库，再确认每个仓库的版本。') }}</p></div><a class="quiet" href="/projects/{{ project.id }}/releases">{{ t('返回发布管理') }}</a></header>
+<form method="post" class="release-form release-wizard" data-release-wizard data-initial-step="{{ 2 if selected else 1 }}" data-error-fields="{{ (form_errors|default({})).keys()|list|join(',') }}" action="/projects/{{ project.id }}/releases{{ '/' ~ plan.id ~ '/edit' if plan else '' }}">
+{{ csrf() }}{% if plan %}<input id="field-version" type="hidden" name="version" value="{{ values.get('version', plan.version) }}">{% endif %}
+<input type="hidden" name="wizard_step" value="{{ values.get('wizard_step', 2 if selected else 1) }}">
+<nav class="wizard-steps" aria-label="{{ t('创建步骤') }}" data-wizard-controls hidden>
+  <button type="button" data-step-go="1"><span>1</span>{{ t('选择仓库') }}</button>
+  <button type="button" data-step-go="2"><span>2</span>{{ t('选择版本') }}</button>
+  <button type="button" data-step-go="3"><span>3</span>{{ t('确认计划') }}</button>
+</nav>
+<section class="wizard-panel" data-wizard-step="1" aria-labelledby="step-repositories">
+  <div class="section-heading"><div><h2 id="step-repositories" tabindex="-1">{{ t('本次发布哪些仓库？') }}</h2><p class="muted">{{ t('只需选择参与本次发布的仓库，最多 50 个。') }}</p></div><span class="selection-counter"><strong data-selected-count>{{ selected|length }}</strong> {{ t('已选择') }}</span></div>
+  <div class="repository-picker-toolbar"><input type="search" data-repository-search aria-label="{{ t('搜索仓库') }}" placeholder="{{ t('搜索仓库或命名空间') }}"><button type="button" class="quiet" data-select-visible>{{ t('选择筛选结果') }}</button><button type="button" class="quiet" data-clear-selection>{{ t('清空选择') }}</button></div>
+  <p class="release-warning" data-selection-error role="alert" hidden>{{ t('请一次选择 1–50 个仓库。') }}</p>
+  {{ field_error('repos') }}
+  <div class="repository-picker">
+  {% for repo in repositories %}<label class="repository-choice" data-repository-choice data-search="{{ repo.full_name|lower }}">
+    <input type="checkbox" name="repos" value="{{ repo.id }}" {% if repo.id in selected %}checked{% endif %}>
+    {% set current = production.get(repo.id) %}
+    <span><strong>{{ repo.name }}</strong><small>{{ repo.full_name }}</small><small>{% if current %}{{ t('当前本番') }} · {{ current.tag_name or current.branch_name }} · {{ current.commit_oid[:8] }}{% else %}{{ t('尚未记录本番') }}{% endif %}</small></span><span class="picker-meta">{{ t('{count} 分支', count=choices[repo.id].branches|length) }}<small>{{ t('{count} 个 Tag', count=choices[repo.id].tags|length) }}</small></span>
+  </label>{% endfor %}
+  </div><p class="muted" data-repository-empty hidden>{{ t('没有匹配的仓库。试试其他名称。') }}</p>
+  <div class="wizard-footer" data-wizard-controls hidden><span>{{ t('其他仓库保持原样') }}</span><button type="button" data-step-next>{{ t('下一步：选择版本') }} →</button></div>
+</section>
+<section class="wizard-panel" data-wizard-step="2" aria-labelledby="step-versions">
+  <div class="section-heading"><div><h2 id="step-versions" tabindex="-1">{{ t('为每个仓库选择发布版本') }}</h2><p class="muted">{{ t('Tag 尚未准备好也可以先保存草稿。') }}</p></div></div>
+  {% for repo in repositories %}{% set item = items.get(repo.id) %}{% set options = choices[repo.id] %}{% set prefix = 'r' ~ repo.id ~ '_' %}
+  <fieldset class="panel release-version-row" data-repository-version="{{ repo.id }}" data-repository-name="{{ repo.full_name }}">
+    <legend>{{ repo.name }}</legend><div class="version-row-header"><span class="muted">{{ repo.full_name }}</span><a href="/admin/repositories/{{ repo.id }}" target="_blank" rel="noopener">{{ t('同步仓库') }} ↗</a></div>
+    {{ version_fields(options, prefix, item) }}
+    {% if not options.tags %}<p class="empty-inline">{{ t('这个仓库还没有 Tag。可先存草稿，准备好后再同步选择。') }}</p>{% endif %}
+    <details class="release-advanced"><summary>{{ t('更多设置') }} <span>{{ t('合并目标') }}: {{ item.target_branch if item else repo.default_branch or '—' }} · MR {{ t('可选') }}</span></summary>
+      <div class="release-fields"><label for="field-{{ prefix }}target">{{ t('合并目标') }}<select id="field-{{ prefix }}target" data-merge-target name="{{ prefix }}target">{% set target = values.get(prefix ~ 'target', item.target_branch if item else repo.default_branch) %}
+        <option value="">{{ t('请选择分支') }}</option>
+        {% if target and target not in options.branches|map(attribute='name')|list %}<option value="{{ target }}" selected data-unavailable>{{ target }} · {{ t('已失效，请重新选择') }}</option>{% endif %}
+        {% for branch in options.branches %}<option value="{{ branch.name }}" {% if branch.name == target %}selected{% endif %}>{{ branch.name }}</option>{% endfor %}</select>{{ field_error(prefix ~ 'target') }}</label><label for="field-{{ prefix }}mr">{{ t('关联 MR') }}{{ mr_select(options, prefix ~ 'mr', item.mr_id if item else none) }}</label></div>
+      <p class="muted">{{ t('只显示匹配分支和目标的 MR；上线后仍可关联。') }}</p>
+    </details>
+    <small class="muted">{{ t('快照时间') }} · {{ repo.git_synced_at|date }}</small>
+  </fieldset>{% endfor %}
+  <div class="wizard-footer" data-wizard-controls hidden><button type="button" class="quiet" data-step-back>← {{ t('重新选择仓库') }}</button><button type="button" data-step-next>{{ t('下一步：确认计划') }} →</button></div>
+</section>
+<section class="wizard-panel" data-wizard-step="3" aria-labelledby="step-review">
+  <h2 id="step-review" tabindex="-1">{{ t('最后确认发布安排') }}</h2>
+  <div class="release-fields plan-basics"><label for="field-title">{{ t('计划名称') }}<input id="field-title" name="title" value="{{ values.get('title', plan.title if plan else '') }}" placeholder="{{ t('例如：10 月定期发布') }}" maxlength="255" required>{{ field_error('title') }}</label><label for="field-scheduled_date">{{ t('计划日期（日本时间）') }}<input id="field-scheduled_date" type="date" name="scheduled_date" value="{{ values.get('scheduled_date', plan.scheduled_date if plan else today) }}" required>{{ field_error('scheduled_date') }}</label></div>
+  <div class="release-scroll review-table-wrap" data-wizard-controls hidden><table class="release-table"><thead><tr><th>{{ t('仓库') }}</th><th>{{ t('发布版本') }}</th><th>{{ t('合并目标') }}</th></tr></thead><tbody data-review-body></tbody></table></div>
+  <p class="release-warning" data-incomplete-review hidden>{{ t('请补齐各仓库的有效分支、Tag 和合并目标后再启动。可以先保存草稿。') }}</p>
+  <p class="release-help">{{ t('创建计划不会执行部署。实际上线后，再到计划中确认。') }}</p>
+  <details class="release-advanced"><summary>{{ t('添加备注') }}</summary><label for="field-notes">{{ t('备注') }}<textarea id="field-notes" name="notes" maxlength="4000">{{ values.get('notes', plan.notes if plan else '') }}</textarea>{{ field_error('notes') }}</label></details>
+  <div class="wizard-footer"><button type="button" class="quiet" data-step-back data-wizard-controls hidden>← {{ t('返回修改版本') }}</button><div class="release-actions"><button type="submit" class="secondary" name="intent" value="draft">{{ t('保存草稿') }}</button><button type="submit" name="intent" value="start">{{ t('保存并启动计划') }}</button></div></div>
+</section>
+</form>
+{% endblock %}

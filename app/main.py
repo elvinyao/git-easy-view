@@ -61,11 +61,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
         return response
 
-    from app.routes import projects, repositories, admin
+    from app.routes import projects, repositories, admin, releases
 
     app.include_router(projects.router)
     app.include_router(repositories.router)
     app.include_router(admin.router)
+    app.include_router(releases.router)
     app.mount(
         "/static",
         StaticFiles(directory=str(Path(__file__).parent / "static")),
@@ -93,6 +94,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             and (exc.status_code in (400, 409, 422) or isinstance(exc, admin.FormError))
             and "application/json" not in request.headers.get("accept", "")
         ):
+            from app.release_forms import recover_form as recover_release_form
+
+            recovered = await run_in_threadpool(recover_release_form, request, exc)
+            if recovered is not None:
+                return recovered
             recovered = await run_in_threadpool(admin.recover_form, request, exc)
             if recovered is not None:
                 return recovered

@@ -15,6 +15,7 @@ x-app: &app
   volumes:
     - app-data:/data/db
     - git-cache:/data/git
+    - ${GEV_LOCAL_GIT_DIRECTORY:-./runtime/local-repositories}:/data/local-git:ro
     - ./${GEV_CA_DIR:?Run bash deploy/deploy.sh first}:/etc/gev/ca:ro
     - ./${GEV_RUNTIME_NETWORK:?Run bash deploy/deploy.sh first}:/etc/gev/runtime-network.env:ro
   restart: unless-stopped
@@ -42,6 +43,7 @@ services:
       - .:/workspace
       - app-data:/data/db
       - git-cache:/data/git
+      - ${GEV_LOCAL_GIT_DIRECTORY:-./runtime/local-repositories}:/data/local-git:ro
       - ./${GEV_CA_DIR:?Run bash deploy/deploy.sh first}:/etc/gev/ca:ro
       - ./${GEV_RUNTIME_NETWORK:?Run bash deploy/deploy.sh first}:/etc/gev/runtime-network.env:ro
     restart: 'no'

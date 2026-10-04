@@ -2,6 +2,12 @@
 
 [ドキュメント一覧](../README.md) · [简体中文](../zh-CN/development.md) · [English](../en/development.md)
 
+## リリース管理の実装
+
+`app/releases.py` が本番概要と MR 根拠の検証、`app/routes/releases.py` が公開 GET と管理者・CSRF 保護付き POST を提供します。マイグレーション `0003` で `git_tags`、`release_sources`、`release_plans`、`release_items`、`deployments` を追加します。稼働履歴は追記のみで、本番はプロジェクト・リポジトリごとの最新レコード ID です。計画のバージョン番号で重複・古い更新を拒否し、プロジェクト書き込みロックで本番記録を直列化します。
+
+Git 同期は branch/tag を一括公開し、失敗時は旧スナップショットを保持します。任意のローカル MR 連携はプラットフォーム記録を別途取得し、接続設定・認証変更で処理中の結果を無効化します。固定 SHA と特定 MR に一致する新鮮で完全な根拠のみマージ確認に使い、ブランチ名だけでは判断しません。完了には稼働とマージの両方が必要で、照合処理は本番履歴を変更しません。テストは `tests/test_releases.py`、`tests/test_release_tags.py`、`tests/test_releases_browser.py` です。
+
 ## 1. 技術スタックと構成
 
 Python 3.13、FastAPI、SQLAlchemy / Alembic、Jinja2、CSS / JavaScript、同梱 jQuery を使います。既定 DB は SQLite で Redis は不要です。Node ビルドはありません。
@@ -77,6 +83,8 @@ Git と API の更新日時は独立です。比較キャッシュは不変 OID 
 公開 GET で DB とローカル Git を読めますが、リモート取得やプラットフォームへの書き込みは開始しません。管理者の接続確認・リポジトリ検出は既存フローでプラットフォームへアクセスします。TLS、HTTPS URL 検証、出力・時間制限、キャッシュロック、ログの資格情報保護を維持してください。
 
 フロントエンドは古いリクエストとキャンセル処理を扱い、遅い応答で新しい絞り込み結果を上書きさせません。ブランチ、コミット、絞り込み、ページ、表示密度を URL から復元します。
+
+ローカル取得元は `app/providers/local.py` で実装し、接続・インポート・同期モデルを再利用するため新しいテーブルは不要です。ホストの `GEV_LOCAL_GIT_DIRECTORY` はマウント設定、サービスの `GEV_LOCAL_GIT_ROOT`（標準 `/data/local-git`）はアクセス範囲の制限に使います。検索・登録の両方で実パスと Git メタデータを検証します。キャッシュのコピーは file プロトコルのみ許可し、元ディレクトリを読み取り専用に保ちます。API 時刻が空でもローカル取得元は「対象外」であり、同期待ちとして扱いません。回帰テストは `tests/test_local_repositories.py`、3 言語の選択・再試行・一括登録のブラウザーテストは `tests/test_admin_experience_browser.py` にあります。
 
 ## 5. コードスタイル、i18n、依存関係
 

@@ -93,6 +93,12 @@ bash deploy/deploy.sh --help
 
 個人 PC でも同じ `bash deploy/deploy.sh` を使い、プロキシと CA ディレクトリは空のままで構いません。専用の `-intranet` イメージタグを使います。初回はビルドが必要で、以後 `--no-build` を使えます。この入口は SQLite の単一コンテナ構成に対応します。旧 PostgreSQL 環境は[データベース移行ガイド](../docs/ja/docker-deployment.md)の `--migrate-sqlite` で先に移行し、DB URL だけを変更しないでください。
 
+### 3.1 サーバー上のローカル Git リポジトリを使う
+
+`runtime/local.env`（本番は `runtime/production.env`）に既存ディレクトリを設定します。例：`GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace`。その後 `bash deploy/deploy.sh` を再実行してください。イメージ更新済みでマウントだけの変更なら `--no-build` を利用できます。新版・旧版 Compose とも `/data/local-git` に読み取り専用でマウントします。未設定時は空の `runtime/local-repositories/` を使い、常駐コンテナは増えません。
+
+管理者は取得元で「ローカル Git ディレクトリ」を選び、子ディレクトリの選択・検索・一括登録を行います。token やリモート接続は不要です。Docker に読み取り権限を与え、登録後はマウントを維持してください。[ローカル登録の手順](../docs/ja/user-guide.md#71-ローカル-git-リポジトリの一括登録)も参照してください。
+
 ## 4. 社内本番サービスと独立インスタンス
 
 ```bash

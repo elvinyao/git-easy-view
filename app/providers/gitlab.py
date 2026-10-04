@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from urllib.parse import quote, urlsplit
 
@@ -20,10 +21,13 @@ class GitLabProvider(Provider):
                 "version": version, "capabilities": {}}
 
     def repositories(self) -> list[Repo]:
-        result = []
+        return list(self.iter_repositories())
+
+    def iter_repositories(self) -> Iterator[Repo]:
+        """Yield validated repositories without fetching unused later pages."""
         for page in self._pages("/projects", {"membership": "true", "per_page": 100, "order_by": "id", "sort": "asc"}):
-            result.extend(self._repo(item) for item in page)
-        return result
+            for item in page:
+                yield self._repo(item)
 
     def repository(self, external_id: str, *, full_name: str | None = None) -> Repo:
         identifier = full_name if full_name is not None else external_id

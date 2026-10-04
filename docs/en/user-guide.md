@@ -2,11 +2,31 @@
 
 [Documentation index](../README.md) · [简体中文](../zh-CN/user-guide.md) · [日本語](../ja/user-guide.md)
 
+## Release plans and production versions
+
+Open **Release management** from a project. Reading is public; changes require an administrator. The **Release plans** tab shows draft, active and completed plans. The separate **Production overview** tab lets you search repositories, check versions actually running and record production where it is missing.
+
+Create an RLS plan in three steps:
+
+1. **Select repositories**: Search by name or namespace and choose 1–50 repositories. You can select the filtered results, clear the selection and check the selected count. Selecting repositories in the project overview opens creation at step 2; you can still go back to add or remove repositories.
+2. **Choose versions**: Fill in only the selected repositories. Search and select actual branches and tags from the lists, then check the short hash, commit summary and time. Expand **More settings** to change the default merge target or link an MR. Tags are synchronized from Git, including lightweight and annotated tags pointing to commits. Non-commit tags are excluded. You can save a draft before tags are ready.
+3. **Review plan**: Enter a name, scheduled date in Japan time and optional notes. Review each repository's version, then choose **Save draft** or **Save and start plan**. Incomplete version settings show a reason and disable starting; you can continue editing a draft later. Starting pins all versions and prevents further edits.
+
+Going back preserves your input. If submission fails, the original form retains the name, date, selections, MR and notes, with errors beside the affected fields. Select an unavailable branch or tag again; the form does not silently switch to the latest version.
+
+Plan details show each repository in a row with its planned version, deployment status, merge status and **Next action**, plus completion counts at the top. After actual deployment, **Confirm deployment** opens the corresponding drawer form. Confirm that the pinned version is running to update production for this project. Expand the optional controls to adjust deployment time or add notes. Then use **Verify merge** to link a specific MR for verification after synchronization, or enter the required merge evidence for manual confirmation. Read-only users can inspect the same status and evidence through **Details**. A repository is complete only when deployment and merge are both confirmed; every repository must complete before the plan completes. Overdue plans are highlighted. Cancelling a plan preserves deployments and does not undo them.
+
+Production is scoped to a project and repository. From **Production overview**, choose **Record production**, select the branch actually running and an optional tag, review the version to be recorded and save. Notes are optional for initial production; a blank deployment time means now. Expand **Production history** for history and rollback controls. Select an older entry and supply the required rollback evidence to record a rollback already performed. This appends a new record and preserves the original history. The application tracks deployment facts; it does not deploy, roll back, create tags or merge MRs. New branch commits and moved or deleted tags never change a pinned version; changes are flagged.
+
+For a local repository, expand the optional **Automatic MR verification** section. Choose a verified read-only GitLab/GitHub connection, click **Load repositories**, search and select a repository by name, then **Verify and link**. If the repository is missing from the list, **Advanced: use repository ID** accepts a numeric GitLab project ID or GitHub repository ID. Failed lookups retain the current selection and can be retried. The platform is contacted for the list only when an administrator explicitly loads it, not on normal page views. The binding reads only MR metadata; code still comes from the local directory. It applies to all projects sharing that repository. Remote repositories use their existing connection. MR status updates run through background synchronization; manual confirmation with evidence remains available without a platform binding.
+
+Automatic confirmation requires a specific linked MR with matching repository identities, source branch, target branch and exact pinned source SHA, plus the platform's merge timestamp. Platform evidence supports squash merges. Different SHAs, failed/stale APIs, missing bindings or missing records do not complete releases automatically. Synchronize again or provide auditable manual evidence. Late MR events never overwrite newer production. Scheduled dates and deployment inputs use Asia/Tokyo; historical timestamps display UTC.
+
 ## 1. What the application does
 
-Git Easy View brings branches, latest commits, and PR/MR relationships from several GitHub or GitLab repositories into one project dashboard. Use it to check main / master, release, and feature activity across a dozen repositories at a glance.
+Git Easy View brings branches and latest commits from GitHub, GitLab, or local Git repositories into one project dashboard, with PR/MR relationships for remote sources. Use it to check main / master, release, and feature activity across a dozen repositories at a glance.
 
-The application reads platform APIs and HTTPS Git. It does not perform checkout, merge, push, or remote branch deletion. Pages display local snapshots obtained by background synchronization.
+The application reads platform APIs, HTTPS Git, or local repositories mounted read-only. It does not perform checkout, merge, push, or remote branch deletion. Pages display local snapshots obtained by background synchronization.
 
 ## 2. Access, permissions, and language
 
@@ -99,6 +119,19 @@ A repository can belong to several projects and reuse its cache and analysis. A 
 Tokens are encrypted in the database and old tokens are not redisplayed. See [Docker and automated deployment](docker-deployment.md#5-platform-tokens-and-company-ca) for scopes and company CA configuration.
 
 Validation errors appear on the original form and retain nonsecret inputs. Correct the identified fields; passwords and tokens must be entered again. Signing in for administration returns you to the original destination. Account identity and logout remain available on mobile.
+
+### 7.1 Import local Git repositories in batches
+
+To work without GitHub or GitLab, first [mount a repository root](docker-deployment.md#61-mount-local-repositories) from the application server. For example, `/Users/elvinyao/workspace` appears as `/data/local-git` in the page.
+
+1. Open `/admin/connections/new`, choose “Local Git directory” as the repository source, and enter a name.
+2. Click “Choose directory…”, navigate to a subdirectory, then select “Use this directory”. You can also enter a container path inside the mounted root.
+3. Click “Save directory and scan repositories”. Discovery recursively finds regular and bare repositories, stops inside detected repositories, and skips hidden and dependency directories.
+4. Choose the destination project, select repositories, and import. Each batch supports up to 50 repositories with selections retained across pages. Follow synchronization progress and browse the complete branch overview on the project page.
+
+Local sources need no token and never contact remote platforms. They read local `refs/heads` branches and committed history; remote-tracking branches and uncommitted changes are excluded. The default branch prefers `main`, then `master`, then HEAD. API and PR/MR are “Not applicable”. Scheduled or manual synchronization rereads the local directory into a separate analysis cache; source repositories remain read-only.
+
+The picker browses the application server, not a visitor's computer. Scans allow up to 1,000 repositories, 5,000 directories, and 12 levels. If a limit is reached or a directory is unreadable, the page explicitly reports partial results. Import the repositories found, then choose a smaller directory to continue scanning. Linked worktree metadata must also be inside the mounted root, with paths valid inside the container. Keep the mapping stable after import; create a new source when moving repositories or changing roots.
 
 ## 8. Common questions
 

@@ -1,9 +1,12 @@
 from .base import AuthenticationError, PR, ProviderError, RateLimitError, Repo, validate_remote_url
 from .github import GitHubProvider
 from .gitlab import GitLabProvider
+from .local import LocalProvider
 
 
-def get_provider(connection, token, client=None):
+def get_provider(connection, token, client=None, *, local_root="/data/local-git"):
+    if connection.kind == "local":
+        return LocalProvider(connection, local_root)
     if connection.kind == "github":
         return GitHubProvider(connection, token, client)
     if connection.kind == "gitlab":

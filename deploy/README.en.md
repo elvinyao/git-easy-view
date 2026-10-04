@@ -93,6 +93,12 @@ The same `COMPOSE_PROJECT_NAME` reuses existing `app-data` and `git-cache` volum
 
 Personal computers use the same `bash deploy/deploy.sh` command with empty proxy values and an empty CA directory. The script uses a separate `-intranet` image tag. Build it on first use; subsequent runs may use `--no-build`. This entry point supports the current single-container SQLite layout. Migrate old PostgreSQL installations using `--migrate-sqlite` in the [database migration guide](../docs/en/docker-deployment.md) first; do not just replace the database URL.
 
+### 3.1 Use local Git repositories on the server
+
+Set an existing directory in `runtime/local.env` (or `runtime/production.env`), for example `GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace`, then rerun `bash deploy/deploy.sh`. Use `--no-build` for mapping-only changes after updating the image. Modern and legacy Compose configurations mount it read-only at `/data/local-git`. The default is an empty `runtime/local-repositories/`; no additional persistent container is needed.
+
+Administrators choose “Local Git directory” on the source form, browse subdirectories, scan, and import in batches. No token or remote connection is needed. Docker must be able to read the directory; keep the mapping stable after import. See the [local import instructions](../docs/en/user-guide.md#71-import-local-git-repositories-in-batches).
+
 ## 4. Production intranet service and separate instances
 
 ```bash

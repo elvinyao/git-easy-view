@@ -4,6 +4,10 @@
 
 需要独立部署时，使用 [deploy/ 部署指南](../../deploy/README.md)：入口为 `bash deploy/deploy.sh`，初始化加 `--init`，运维使用 `bash deploy/deploy.sh compose ...`。支持 HTTP/HTTPS 代理、公司 CA 和个人电脑直连，无需经过 `.agent/run.sh`。本页保留开发 runner 的部署、数据库迁移及运维说明。
 
+## 发布管理升级
+
+沿用本页部署命令即可，部署会自动执行迁移 `0003`。新增表保存 Tag、发布计划和本番历史，不需要新容器或环境变量。升级前按备份章节备份 SQLite；不要对已有发布数据执行降级迁移。Tag 在下次仓库同步后出现，也可由管理员手动同步。本地 MR 绑定使用现有平台连接，沿用容器 HTTP/HTTPS 代理与 CA 设置；代码目录仍为只读挂载。
+
 ## 1. 环境要求与单容器结构
 
 安装并启动 Docker Engine 20.10+（或对应的 Docker Desktop），启用 BuildKit；从仓库根目录执行命令。宿主只读源码或编辑文件，项目执行统一使用 `bash .agent/run.sh ...`。
@@ -159,6 +163,18 @@ token 以 Fernet 加密存入数据库。保管并备份 `GEV_CREDENTIAL_KEY`；
 | `GEV_SESSION_MAX_AGE` | 43200 秒 |
 
 后台每秒检查排队任务，单仓库同步间隔默认 300 秒，由管理员修改。生产允许绝对路径的 SQLite 文件，仍强制稳定密钥与 Secure cookie。PostgreSQL/RQ 适配器保留兼容用途，不属于默认部署。
+
+### 6.1 本地仓库目录映射
+
+用编辑器在对应的 `runtime/local.env`（生产为 `runtime/production.env`）加入宿主机已有的仓库根目录：
+
+```dotenv
+GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace
+```
+
+运行 `bash .agent/run.sh deploy` 应用配置；以后只改映射且镜像已更新时可加 `--no-build`。默认未配置时使用 `runtime/local-repositories/` 空目录。普通部署与独立部署均只读挂载到 `/data/local-git`，管理员只能选择此范围内的目录。Docker Desktop 需允许共享该宿主目录；Linux 需让容器具有目录遍历及 Git 文件读取权限。
+
+原目录不用于缓存写入，也不会执行 fetch/push 到原仓库的 remote。导入后的同步任务从挂载目录复制 Git 对象到 `git-cache`。不要在已有来源下把映射切换成另一组同名仓库；迁移时保留目录结构，或新建来源。
 
 ## 7. 日常操作与排错
 

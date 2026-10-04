@@ -23,6 +23,12 @@ x-app: &app
     - app-data:/data/db
     - git-cache:/data/git
     - type: bind
+      source: ${GEV_LOCAL_GIT_DIRECTORY:-./runtime/local-repositories}
+      target: /data/local-git
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
       source: ${GEV_CA_DIR:?Run bash deploy/deploy.sh first}
       target: /etc/gev/ca
       read_only: true
@@ -53,6 +59,12 @@ services:
       - .:/workspace
       - app-data:/data/db
       - git-cache:/data/git
+      - type: bind
+        source: ${GEV_LOCAL_GIT_DIRECTORY:-./runtime/local-repositories}
+        target: /data/local-git
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ${GEV_CA_DIR:?Run bash deploy/deploy.sh first}
         target: /etc/gev/ca

@@ -1,0 +1,41 @@
+{% extends 'release_base.html' %}
+{% from 'release_fields.html' import mr_select, csrf, field_error with context %}
+{% block title %}{{ plan.title }}{% endblock %}
+{% block release_content %}
+{% set values = form_values|default({}) %}
+{% set progress = namespace(deployed=0, merged=0, completed=0) %}
+{% for item in plan.items %}{% if item.deployed_at %}{% set progress.deployed=progress.deployed+1 %}{% endif %}{% if item.merged_at %}{% set progress.merged=progress.merged+1 %}{% endif %}{% if item.deployed_at and item.merged_at %}{% set progress.completed=progress.completed+1 %}{% endif %}{% endfor %}
+<header class="release-heading">
+  <div><p class="eyebrow">{{ plan.scheduled_date }} · {{ t('日本时间') }}</p><h1>{{ plan.title }}</h1><span class="release-badge {{ state }}">{{ t({'draft':'草稿','active':'进行中','complete':'RLS 完成','cancelled':'已取消'}[state]) }}</span>{% if plan.notes %}<p>{{ plan.notes }}</p>{% endif %}</div>
+  {% if user and user.is_admin %}<div class="release-actions">
+    {% if state == 'draft' %}<a class="button" href="/projects/{{ project.id }}/releases/{{ plan.id }}/edit">{{ t('继续填写版本') }} →</a>{% endif %}
+    {% if state in ('draft','active') %}<form method="post" action="/projects/{{ project.id }}/releases/{{ plan.id }}/action">{{ csrf() }}<input id="field-version" type="hidden" name="version" value="{{ values.get('version', plan.version) }}">{% if state == 'draft' %}<button type="submit" name="action" value="activate" class="secondary">{{ t('启动计划并锁定版本') }}</button>{% endif %}<button class="quiet" type="submit" name="action" value="cancel" data-confirm="confirmCancel">{{ t('取消计划') }}</button></form>{% endif %}
+  </div>{% endif %}
+</header>
+<div class="release-progress">
+  <div><span>{{ t('本次仓库') }}</span><strong>{{ plan.items|length }}</strong></div><div><span>{{ t('已确认上线') }}</span><strong>{{ progress.deployed }} <small>/ {{ plan.items|length }}</small></strong></div><div><span>{{ t('已确认合入') }}</span><strong>{{ progress.merged }} <small>/ {{ plan.items|length }}</small></strong></div><div class="progress-complete"><span>{{ t('RLS 完成') }}</span><strong>{{ progress.completed }} <small>/ {{ plan.items|length }}</small></strong></div>
+</div>
+<p class="release-help">{{ t('实际部署后确认上线；上线与合入都确认后，此仓库才算完成。') }}</p>
+<section class="panel release-workspace" data-searchable-list>
+  <div class="workspace-toolbar"><h2>{{ t('仓库发布进度') }}</h2><input type="search" data-list-search placeholder="{{ t('搜索仓库、版本或状态') }}" aria-label="{{ t('搜索仓库、版本或状态') }}"></div>
+  <div class="release-scroll"><table class="release-table release-status-table"><thead><tr><th>{{ t('仓库') }}</th><th>{{ t('计划版本') }}</th><th>{{ t('上线状态') }}</th><th>{{ t('合入主干') }}</th><th>{{ t('下一步') }}</th></tr></thead><tbody>
+  {% for item in plan.items %}{% set repo = repositories[item.repository_id] %}
+  <tr id="item-{{ item.id }}" data-release-row data-search-row>
+    <th scope="row" data-label="{{ t('仓库') }}"><strong>{{ repo.name }}</strong><small>{{ repo.full_name }}</small></th>
+    <td data-label="{{ t('计划版本') }}"><strong>{{ item.tag_name or t('Tag 待定') }}</strong><small><code>{{ item.branch_name }}</code> · {{ item.commit_oid[:8] if item.commit_oid else '—' }}</small>{% if tag_changes[item.id] %}<span class="release-warning compact-warning">{{ t('Tag 已变化，保留固定版本') }}</span>{% endif %}</td>
+    <td data-label="{{ t('上线状态') }}"><span class="release-badge {{ 'complete' if item.deployed_at else '' }}">{{ t('已确认上线') if item.deployed_at else t('待上线') }}</span><small>{{ item.deployed_at|date if item.deployed_at else '' }}</small></td>
+    <td data-label="{{ t('合入主干') }}"><span class="release-badge {{ 'complete' if item.merged_at else '' }}">{{ t('已确认合入') if item.merged_at else t('待合入主干') }}</span><small>{{ item.target_branch }}{% if item.mr_id %} · MR {{ t('已关联') }}{% endif %}</small></td>
+    <td data-label="{{ t('下一步') }}">
+      {% if user and user.is_admin and state == 'active' and not item.deployed_at %}<button type="button" data-next-action data-release-open="release-item-{{ item.id }}" data-operation-target="deploy">{{ t('确认上线') }}</button>
+      {% elif user and user.is_admin and state == 'active' and not item.merged_at %}<button type="button" class="secondary" data-next-action data-release-open="release-item-{{ item.id }}" data-operation-target="merge">{{ t('核对合入') }}</button>
+      {% elif state == 'draft' and user and user.is_admin %}<a href="/projects/{{ project.id }}/releases/{{ plan.id }}/edit">{{ t('完善版本') }}</a>{% endif %}
+      <button class="quiet row-details" type="button" data-release-open="release-item-{{ item.id }}">{{ t('详情') }}</button>
+    </td>
+  </tr>{% endfor %}
+  </tbody></table></div><p class="empty-inline" data-no-matches hidden>{{ t('没有匹配的仓库。试试其他名称。') }}</p>
+</section>
+{% for item in plan.items %}{% set repo = repositories[item.repository_id] %}{% set options = choices[item.repository_id] %}
+  {% include 'release_item_drawer.html' %}
+{% endfor %}
+<details class="panel release-card"><summary>{{ t('操作记录') }}</summary>{% for entry in audits %}<p>{{ entry.created_at|date }} · #{{ entry.actor_id or '—' }} · {{ t({'release.saved':'保存草稿','release.activate':'启动计划并锁定版本','release.cancel':'取消计划','release.deploy':'确认实际上线','release.merge':'人工确认合入主干','release.bind':'保存 MR 关联'}.get(entry.action, '修改已保存。')) }}{% if entry.details.notes %} · {{ entry.details.notes }}{% endif %}</p>{% endfor %}</details>
+{% endblock %}

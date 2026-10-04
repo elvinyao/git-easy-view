@@ -2,6 +2,12 @@
 
 [Documentation index](../README.md) · [简体中文](../zh-CN/development.md) · [日本語](../ja/development.md)
 
+## Release management implementation
+
+`app/releases.py` builds production summaries and validates MR evidence; `app/routes/releases.py` exposes public GET routes and admin/CSRF-protected POST routes. Migration `0003` adds `git_tags`, `release_sources`, `release_plans`, `release_items` and `deployments`. Deployment history is append-only; production uses the latest record ID per project/repository. Plan version checks reject duplicate/stale writes, and project write locks serialize production records.
+
+Git synchronization atomically publishes branch/tag snapshots, retaining old snapshots on failure. Optional local MR bindings fetch platform records separately; changed bindings or credentials invalidate in-flight results. Only fresh, complete evidence matching the fixed SHA and specific MR confirms a merge. Branch names alone never imply completion. Completion requires deployment and merge; reconciliation never writes production history. Tests: `tests/test_releases.py`, `tests/test_release_tags.py`, `tests/test_releases_browser.py`.
+
 ## 1. Stack and layout
 
 Python 3.13, FastAPI, SQLAlchemy / Alembic, Jinja2, CSS / JavaScript, and vendored jQuery. SQLite is the default database; Redis is unnecessary. There is no Node build.
@@ -77,6 +83,8 @@ Public GET routes use `optional_user`. Project reads are public; non-administrat
 Public GET may read the database and local Git objects, but should not initiate remote fetching or platform writes. Administrator connection checks and repository discovery contact the platform through their existing workflows. Preserve TLS, HTTPS URL validation, output / time limits, cache locks, and credential redaction.
 
 Frontend updates must handle superseded requests and cancellation callbacks so slow responses cannot replace newer filters. Restore branch, commit, filters, pagination, and density from the URL.
+
+Local sources use `app/providers/local.py` and reuse connection, import, and synchronization models without new tables. Host setting `GEV_LOCAL_GIT_DIRECTORY` controls deployment mounting; service setting `GEV_LOCAL_GIT_ROOT` (default `/data/local-git`) restricts access. Discovery and import validate resolved paths and Git metadata. Cache copies allow only the file protocol and keep sources read-only. An absent API timestamp means “Not applicable” for local sources, rather than pending synchronization. Regression coverage lives in `tests/test_local_repositories.py`; three-language directory selection, retry, and batch import are covered in `tests/test_admin_experience_browser.py`.
 
 ## 5. Style, localization, and dependencies
 

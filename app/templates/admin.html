@@ -13,7 +13,7 @@
     <h2>{{ t('开始使用') }}</h2>
     <ol>
       <li><a href="#create-project">{{ t('创建项目') }}</a></li>
-      <li><a href="/admin/connections/new">{{ t('配置并检查平台连接') }}</a></li>
+      <li><a href="/admin/connections/new">{{ t('添加远程连接或本地目录') }}</a></li>
       <li>{{ t('从连接中选择仓库并导入项目') }}</li>
       <li>{{ t('查看首次同步进度，完成后浏览分支') }}</li>
     </ol>
@@ -45,7 +45,7 @@
       </form>
     </section>
     <section class="panel">
-      <h2>{{ t('平台连接') }}</h2>
+      <h2>{{ t('仓库来源') }}</h2>
       <ul class="admin-list">
         {% for connection in connections %}
           <li>
@@ -58,7 +58,7 @@
           <li class="muted">{{ t('尚未添加平台连接') }}</li>
         {% endfor %}
       </ul>
-      <a class="button primary" href="/admin/connections/new">{{ t('添加平台连接') }}</a>
+      <a class="button primary" href="/admin/connections/new">{{ t('添加仓库来源') }}</a>
     </section>
     <section class="panel">
       <h2>{{ t('用户账号') }}</h2>

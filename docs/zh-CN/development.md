@@ -2,6 +2,12 @@
 
 [文档目录](../README.md) · [日本語](../ja/development.md) · [English](../en/development.md)
 
+## 发布管理实现
+
+`app/releases.py` 负责本番摘要和 MR 证据核验，`app/routes/releases.py` 提供公开 GET 与管理员/CSRF 保护的 POST。迁移 `0003` 新增 `git_tags`、`release_sources`、`release_plans`、`release_items`、`deployments`。上线历史只追加；当前本番取每个项目/仓库最新记录 ID。计划版本号防止重复/过期写入；项目写锁串行化本番记录。
+
+Git 同步原子发布 branch/tag 快照，失败保留旧快照。可选本地 MR 来源独立获取平台记录，绑定或凭据变化使在途结果失效。仅新鲜、完整且与固定 SHA/具体 MR 匹配的证据确认合并，不根据分支名称猜测。完成状态由上线和合入两项计算；MR 核验不写本番历史。测试位于 `tests/test_releases.py`、`tests/test_release_tags.py`、`tests/test_releases_browser.py`。
+
 ## 1. 技术栈与目录
 
 Python 3.13，FastAPI，SQLAlchemy / Alembic，Jinja2，CSS / JavaScript 与 vendored jQuery；默认 SQLite，无需 Redis。前端无需 Node 构建。
@@ -77,6 +83,8 @@ Git 与 API 更新时间独立。分支比较基于不可变 OID 和规则版本
 公开 GET 可以读取数据库和本地 Git 对象，但不应触发远端抓取或平台写入。管理员的连接检查与仓库发现按既有流程访问平台。保留 TLS 验证、远端 HTTPS 地址校验、输出和时间限制、缓存锁，以及日志中的凭据脱敏。
 
 前端异步更新需要处理旧请求和取消回调，防止慢响应覆盖新筛选结果。URL 应恢复分支、提交、筛选、分页与密度状态。
+
+本地来源由 `app/providers/local.py` 实现，复用连接、导入和同步模型，无需新增数据库表。宿主 `GEV_LOCAL_GIT_DIRECTORY` 只用于部署映射，服务内由 `GEV_LOCAL_GIT_ROOT`（默认 `/data/local-git`）限制访问范围。发现和导入均校验真实路径及 Git 元数据；Git 缓存复制仅允许 file 协议，保持原目录只读。API 时间为空且状态“不适用”，不能据此把本地仓库判为待同步。回归覆盖见 `tests/test_local_repositories.py`；三语目录选择、重试及批量导入的浏览器覆盖见 `tests/test_admin_experience_browser.py`。
 
 ## 5. 风格、i18n 与依赖
 

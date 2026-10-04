@@ -6,6 +6,7 @@ x-app: &app
     - app-data:/data/db
     - git-cache:/data/git
     - ./runtime/ca:/etc/gev/ca:ro
+    - ${GEV_LOCAL_GIT_DIRECTORY:-./runtime/local-repositories}:/data/local-git:ro
   restart: unless-stopped
 
 services:
@@ -78,6 +79,7 @@ services:
       - app-data:/data/db
       - git-cache:/data/git
       - ./runtime/ca:/etc/gev/ca:ro
+      - ${GEV_LOCAL_GIT_DIRECTORY:-./runtime/local-repositories}:/data/local-git:ro
   browser:
     <<: *app
     profiles: [verification]

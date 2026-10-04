@@ -13,11 +13,12 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from .db import make_engine
-from .git_service import GitService, ComparisonResult, clone_bare, fetch_bare, _run
+from .git_service import GitService, ComparisonResult, clone_bare, fetch_bare, clone_local_bare, fetch_local_bare, _run
 from .jobs import TERMINAL, locked_repository, repository_lock
 from .models import Branch, BranchConfig, Comparison, PlatformConnection, PullRequest, Repository, SyncJob, utc_now
 from .providers import AuthenticationError, RateLimitError, get_provider, validate_remote_url
 from .providers.base import Provider
+from .providers.local import LocalProvider
 from .relations import BranchRef, PullRequestRef, RULE_VERSION, infer_source_candidates, manual_source_claim, planned_targets
 
 
@@ -106,8 +107,9 @@ def _api_snapshot(engine, job, connection, token, provider_factory):
         metadata = provider.repository(external_id)
         if metadata.external_id != external_id:
             raise ValueError("Provider repository identity changed")
-        validate_remote_url(metadata.clone_url, provider.web_root)
-        validate_remote_url(metadata.web_url, provider.web_root)
+        if kind != "local":
+            validate_remote_url(metadata.clone_url, provider.web_root)
+            validate_remote_url(metadata.web_url, provider.web_root)
         kwargs = {"full_name": metadata.full_name} if kind == "github" else {}
         records = list(provider.pull_requests(external_id, since, **kwargs))
     # Full traversal completed. Publish all records and coverage together.
@@ -135,15 +137,19 @@ def _api_snapshot(engine, job, connection, token, provider_factory):
                                      PullRequest.state.in_(("open", "opened")))):
             if old.external_id not in seen:
                 old.state, old.fetched_at, old.api_generation = "unknown", started, job.generation
-        repo.api_synced_at, repo.api_generation, repo.api_error = started, job.generation, None
-        repo.api_coverage_since = min(since, repo.api_coverage_since) if repo.api_coverage_since else since
+        repo.api_synced_at, repo.api_generation, repo.api_error = (None if kind == "local" else started), job.generation, None
+        repo.api_coverage_since = None if kind == "local" else min(since, repo.api_coverage_since) if repo.api_coverage_since else since
         session.commit()
 
 
 def _refresh_cache(settings, repo, connection, token, *, local_source=None, fetch=fetch_bare, clone=clone_bare):
     path = cache_path(settings, repo.id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    if local_source is None:
+    local = connection.kind == "local"
+    if local:
+        source = LocalProvider(connection, settings.local_git_root).repository(repo.external_id).clone_url
+        clone, fetch = clone_local_bare, fetch_local_bare
+    elif local_source is None:
         with Provider(connection, token) as provider:
             source = validate_remote_url(repo.clone_url, provider.web_root)
     else:
@@ -152,13 +158,13 @@ def _refresh_cache(settings, repo, connection, token, *, local_source=None, fetc
         if not path.exists():
             with tempfile.TemporaryDirectory(prefix=f".{repo.id}-clone-", dir=path.parent) as directory:
                 staged = Path(directory) / "repository.git"
-                clone(source, staged, env=env, allow_file_transport=local_source is not None)
+                clone(source, staged, env=env, allow_file_transport=local or local_source is not None)
                 staged.rename(path)
         else:
             # Revalidate approved metadata every time, including renamed repos;
             # never trust an on-disk origin changed outside the application.
             _run(["-C", str(path), "config", "remote.origin.url", source])
-            fetch(path, env=env, allow_file_transport=local_source is not None)
+            fetch(path, env=env, allow_file_transport=local or local_source is not None)
     return GitService(path)
 
 
@@ -235,7 +241,7 @@ def _analyze(engine, job, git):
     return heads, evidence, calculated.values()
 
 
-def _publish_git(engine, job, connection, heads, evidence, comparisons):
+def _publish_git(engine, job, connection, heads, evidence, comparisons, tags=None):
     with Session(engine) as session:
         repo = _guard(session, job)
         _connection_guard(session, connection)
@@ -261,6 +267,17 @@ def _publish_git(engine, job, connection, heads, evidence, comparisons):
         for result in comparisons:
             _put_comparison(session, repo.id, result, oid_ids.get(result.source_oid), oid_ids.get(result.target_oid))
         repo.git_synced_at, repo.snapshot_generation, repo.sync_error = utc_now(), job.generation, None
+        if tags is not None:
+            from .models import GitTag
+            existing = {t.name: t for t in session.scalars(select(GitTag).where(GitTag.repository_id == repo.id))}
+            for row in existing.values():
+                row.deleted = True
+            for tag in tags:
+                row = existing.get(tag["name"]) or GitTag(repository_id=repo.id, name=tag["name"])
+                for key, value in tag.items():
+                    setattr(row, key, value)
+                row.deleted = False
+                session.add(row)
         session.commit()
 
 
@@ -353,12 +370,13 @@ def execute_job(job_id, *, settings, provider_factory=get_provider, local_source
                             if errors and isinstance(errors[0], AuthenticationError) and connection.encrypted_token and token is None:
                                 raise errors[0]
                             if field == "api_error":
-                                _api_snapshot(engine, job, connection, token, provider_factory)
+                                factory = (lambda connection, token: LocalProvider(connection, settings.local_git_root)) if connection.kind == "local" else provider_factory
+                                _api_snapshot(engine, job, connection, token, factory)
                             else:
                                 with Session(engine) as session:
                                     repo = session.get(Repository, repository_id)
                                 git = _refresh_cache(settings, repo, connection, token, local_source=local_source, fetch=fetch, clone=clone)
-                                _publish_git(engine, job, connection, *_analyze(engine, job, git))
+                                _publish_git(engine, job, connection, *_analyze(engine, job, git), tags=git.tags())
                         except Superseded:
                             superseded = True
                             break
@@ -369,6 +387,12 @@ def execute_job(job_id, *, settings, provider_factory=get_provider, local_source
                             except Superseded:
                                 superseded = True
                                 break
+            if job.kind == "sync" and not superseded:
+                from .releases import sync_release_metadata
+                try:
+                    sync_release_metadata(engine, repository_id, settings, provider_factory)
+                except Exception as error:
+                    errors.append(error)
             with Session(engine) as session:
                 row = session.get(SyncJob, job_id)
                 repo = locked_repository(session, repository_id)

@@ -1,0 +1,50 @@
+{% set own_form = form_item_id is defined and form_item_id == item.id %}
+{% set item_values = values if own_form else {} %}
+{% set action = item_values.get('action', '') %}
+{% set matching = namespace(found=false) %}
+{% for mr in options.mrs %}{% if mr.source_branch == item.branch_name and mr.target_branch == item.target_branch and mr.source_repo == options.external_id and mr.target_repo == options.external_id %}{% set matching.found = true %}{% endif %}{% endfor %}
+<dialog id="release-item-{{ item.id }}" class="release-drawer" aria-labelledby="drawer-title-{{ item.id }}" {% if own_form and form_errors %}data-open-on-error="{{ 'merge' if action == 'bind' else action or 'deploy' }}"{% endif %}>
+  <header class="drawer-heading"><div><p class="eyebrow">{{ t('发布版本') }}</p><h2 id="drawer-title-{{ item.id }}">{{ repo.name }}</h2></div><form method="dialog"><button class="quiet" aria-label="{{ t('关闭') }}">×</button></form></header>
+  {% if own_form and form_errors %}<div class="notice danger" role="alert">{% for error in form_errors.values() %}<p>{{ t(error) }}</p>{% endfor %}</div>{% endif %}
+  <div class="drawer-version"><strong>{{ item.tag_name or t('Tag 待定') }}</strong><span>{{ item.branch_name }} → {{ item.target_branch }}</span><code class="release-hash">{{ item.commit_oid or '—' }}</code><p>{{ item.subject }}</p></div>
+  {% if tag_changes[item.id] %}<p class="release-warning">{{ t('Tag 已移动或删除；本计划仍保留原版本。') }}</p>{% endif %}
+  {% if user and user.is_admin and state == 'active' and not item.deployed_at %}
+  <form method="post" class="release-operation" data-operation="deploy" {% if own_form and action == 'deploy' %}data-form-recovery{% endif %} action="/projects/{{ project.id }}/releases/{{ plan.id }}/items/{{ item.id }}">
+    {{ csrf() }}<input type="hidden" name="version" value="{{ item_values.get('version', plan.version) }}"><input type="hidden" name="action" value="deploy"><input type="hidden" name="confirmed_oid" value="{{ item_values.get('confirmed_oid', item.commit_oid) }}">
+    <h3>{{ t('确认实际上线') }}</h3><p class="muted">{{ t('这会更新本番记录，不会执行部署。') }}</p>
+    <label class="confirm-line"><input type="checkbox" required> {{ t('我确认此固定版本已在本番运行。') }}</label>
+    <details class="release-advanced" {% if own_form and action == 'deploy' and ('deployed_at' in form_errors or 'notes' in form_errors) %}open{% endif %}>
+      <summary>{{ t('调整上线时间或添加备注') }}</summary>
+      <label>{{ t('实际上线时间（日本时间，留空为现在）') }}<input type="datetime-local" name="deployed_at" value="{{ item_values.get('deployed_at', '') if action == 'deploy' else '' }}">{% if own_form and action == 'deploy' %}{{ field_error('deployed_at') }}{% endif %}</label>
+      <label>{{ t('备注') }}<textarea name="notes" maxlength="4000">{{ item_values.get('notes', '') if action == 'deploy' else '' }}</textarea>{% if own_form and action == 'deploy' %}{{ field_error('notes') }}{% endif %}</label>
+    </details>
+    <button type="submit">{{ t('确认上线并更新本番') }}</button>
+  </form>{% endif %}
+  <div class="release-timeline"><p><span>{{ t('上线状态') }}</span><strong>{{ t('已确认上线') if item.deployed_at else t('待上线') }}</strong><small>{{ item.deployed_at|date if item.deployed_at else '' }}</small></p><p><span>{{ t('合入主干') }} · {{ item.target_branch }}</span><strong>{{ t('已确认合入') if item.merged_at else t('待合入主干') }}</strong><small>{{ item.merged_at|date if item.merged_at else '' }}</small></p></div>
+  {% if item.merge_evidence %}<section class="release-evidence"><h3>{{ t('合入依据') }}</h3>{% if item.merge_evidence.kind == 'platform' %}<a href="{{ item.merge_evidence.url }}" target="_blank" rel="noopener noreferrer">{{ item.merge_evidence.title }} ↗</a><p><code>{{ item.merge_evidence.merge_oid or '—' }}</code></p>{% else %}<p>{{ t('人工确认') }} · #{{ item.merge_evidence.actor_id }}</p><p>{{ item.merge_evidence.reason }}</p>{% endif %}</section>{% endif %}
+  {% if not item.merged_at %}<section class="release-operation" data-operation="merge"><h3>{{ t('核对合入') }}</h3>
+    {% if item.mr_id %}<p>{{ t('MR 已关联，后台同步后自动核验。') }}</p>{% elif options.connection_id %}<p class="muted">{{ t('选择对应 MR，让系统在同步后自动核验。') }}</p>{% else %}<p class="muted">{{ t('尚未绑定平台。可以先人工确认，或关联 GitLab/GitHub。') }}</p>{% endif %}
+    {% if options.error %}<p class="release-warning">{{ t('MR 同步失败，请检查平台连接。') }}</p>{% endif %}
+    {% if user and user.is_admin and state == 'active' %}
+      {% if matching.found or item.mr_id or (own_form and action == 'bind') %}
+      <form method="post" {% if own_form and action == 'bind' %}data-form-recovery{% endif %} action="/projects/{{ project.id }}/releases/{{ plan.id }}/items/{{ item.id }}">
+        {{ csrf() }}<input type="hidden" name="version" value="{{ item_values.get('version', plan.version) }}"><input type="hidden" name="action" value="bind">
+        <label for="field-mr-{{ item.id }}">{{ t('关联 MR') }}</label>
+        {{ mr_select(options, 'mr', item_values.get('mr', item.mr_id), input_id='field-mr-' ~ item.id, recover=false, branch=item.branch_name, target=item.target_branch) }}
+        {% if own_form and action == 'bind' %}{{ field_error('mr') }}{% endif %}
+        <button type="submit" class="secondary">{{ t('保存 MR 关联') }}</button>
+      </form>{% endif %}
+      <details class="release-advanced" {% if not matching.found or (own_form and action == 'merge') %}open{% endif %}>
+        <summary>{{ t('人工确认合入主干') }}</summary>
+        <form method="post" {% if own_form and action == 'merge' %}data-form-recovery{% endif %} action="/projects/{{ project.id }}/releases/{{ plan.id }}/items/{{ item.id }}">
+          {{ csrf() }}<input type="hidden" name="version" value="{{ item_values.get('version', plan.version) }}"><input type="hidden" name="action" value="merge">
+          <label>{{ t('合入依据（必填）') }}<textarea name="notes" maxlength="4000" required placeholder="{{ t('例如：MR 链接，或已核验的主干提交 hash') }}">{{ item_values.get('notes', '') if action == 'merge' else '' }}</textarea>{% if own_form and action == 'merge' %}{{ field_error('notes') }}{% endif %}</label>
+          <button type="submit">{{ t('人工确认合入主干') }}</button>
+        </form>
+      </details>
+    {% endif %}
+    <small class="muted">{{ t('MR 快照') }} · {{ options.synced|date }}</small>
+  </section>{% endif %}
+  <details class="release-advanced"><summary>{{ t('版本与判定详情') }}</summary><p>{{ t('提交时间') }} · {{ item.commit_time|date }}</p><p class="muted">{{ t('自动完成需要同仓库、同分支、同目标及相同发布提交的 MR。无法核实时可填写依据人工确认。') }}</p></details>
+  <a class="drawer-footer-link" href="/projects/{{ project.id }}/production/{{ repo.id }}">{{ t('本番历史与 MR 来源') }} →</a>
+</dialog>
