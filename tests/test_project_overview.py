@@ -216,13 +216,11 @@ def test_summary_precedes_complete_branches_and_links_preserve_baseline(client, 
     assert 'data-inspect-url=' in body
     assert 'id="project-inspector"' in body
     assert '匹配 1 / 全部 11 分支' in body
-    assert '主干作为比较上下文保留' in body
 
 
 def test_active_release_is_text_and_summary_does_not_duplicate_branch_rows(client, pages, overview_history):
     body = client.get(f"/projects/{pages['project']}").text
     assert '当前发布' in body
-    assert '当前发布优先 · 最近提交排序' in body
     assert body.count('data-summary-branch-id=') == 11
     assert '有独有提交' not in body
     assert '未全部包含' in body
@@ -251,7 +249,6 @@ def test_summary_keeps_latest_repository_tips_when_branch_list_is_filtered(clien
     summary = re.search(r'<tr data-repository-summary=.*?</tr>', body, re.S)[0]
     assert 'release/2026.10' in summary and 'feature/z-latest' in summary
     assert '全部 2 条' in summary and '全部 8 条' in summary
-    assert '摘要显示完整仓库，分支列表遵循筛选。' in body
 
 
 def test_complete_group_link_finds_repository_after_clearing_branch_filter(app, client, pages):

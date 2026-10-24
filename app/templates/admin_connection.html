@@ -71,16 +71,13 @@
                  placeholder="/certs/company-ca.pem"
                  maxlength="2048">
         </label>
-        <p class="help" data-remote-source {% if source_kind == 'local' %}hidden{% endif %}>{{ t('CA 文件须挂载到 Web 与 Worker 容器。TLS 验证始终启用；凭据变更后须检查连接才能恢复同步。') }}</p>
         <section data-local-source {% if source_kind != 'local' %}hidden{% endif %}>
           <label>{{ t('本地目录') }}<input name="local_path" {{ f.attrs('local_path') }}
             {% if source_kind == 'local' %}required{% else %}disabled{% endif %}
             value="{{ f.value('local_path', connection.base_url if connection and connection.kind == 'local' else local_git_root) }}" maxlength="2048"></label>
           <button type="button" data-directory-open>{{ t('选择目录…') }}</button>
-          <p class="help">{{ t('选择已挂载目录中的子目录，递归扫描其中的 Git 仓库。无需令牌，不访问 remote，不修改工作区。') }}</p>
           <p class="help">{{ t('可访问根目录：{path}', path=local_git_root) }}</p>
           {% if request.app.state.settings.local_git_directory %}<p class="help">{{ t('服务器映射目录：{path}', path=request.app.state.settings.local_git_directory) }}</p>{% endif %}
-          <p class="help">{{ t('Docker 中的目录来自服务器只读映射；其他目录请先设置 GEV_LOCAL_GIT_DIRECTORY 并重新部署。') }}</p>
         </section>
         <button class="primary" data-source-save data-local-label="{{ t('保存目录并扫描仓库') }}" data-remote-label="{{ t('保存连接') }}">{{ t('保存目录并扫描仓库') if source_kind == 'local' else t('保存连接') }}</button>
       </form>
@@ -96,15 +93,12 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button>{{ t('检查目录可访问性') if connection.kind == 'local' else t('检查身份与平台能力') }}</button>
         </form>
-        <p class="help">{{ t('检查成功后会重新安排关联仓库同步。') }}</p>
         {% if not connection.auth_disabled %}
           <p>
             <a class="button primary"
                href="/admin/connections/{{ connection.id }}/repositories">{{ t('选择仓库并导入 →') }}</a>
           </p>
         {% endif %}
-      {% else %}
-        <p class="muted">{{ t('远程来源先保存并检查连接；本地来源保存目录后即可批量选择仓库。') }}</p>
       {% endif %}
     </section>
   </div>

@@ -3,21 +3,8 @@
 {% block title %}{{ t('管理工作台') }}{% endblock %}
 {% block content %}
   <header class="page-heading">
-    <div>
-      <p class="eyebrow">{{ t('ADMINISTRATION') }}</p>
-      <h1>{{ t('管理工作台') }}</h1>
-      <p class="muted">{{ t('项目快照可匿名查看；管理员负责连接、导入与同步。') }}</p>
-    </div>
+    <h1>{{ t('管理工作台') }}</h1>
   </header>
-  <section class="panel setup-checklist">
-    <h2>{{ t('开始使用') }}</h2>
-    <ol>
-      <li><a href="#create-project">{{ t('创建项目') }}</a></li>
-      <li><a href="/admin/connections/new">{{ t('添加远程连接或本地目录') }}</a></li>
-      <li>{{ t('从连接中选择仓库并导入项目') }}</li>
-      <li>{{ t('查看首次同步进度，完成后浏览分支') }}</li>
-    </ol>
-  </section>
   <div class="admin-grid">
     <section class="panel">
       <h2>{{ t('项目') }}</h2>

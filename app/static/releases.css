@@ -33,9 +33,9 @@
 .release-page .release-heading { display: flex; justify-content: space-between; gap: 22px; align-items: flex-start; margin-bottom: 26px; }
 .release-heading h1 { margin: 4px 0 10px; font-size: 30px; overflow-wrap: anywhere; }
 .release-page .secondary { background: #f6fafb; color: #126b71; border: 1px solid #b7d6d8; }
-.release-page [data-step-next], .release-page [name=intent][value=start],
+.release-page [name=intent][value=start],
 .release-page .release-operation > button[type=submit], .release-page .production-editor button[type=submit] { background: #127b80; border-color: #127b80; color: white; }
-.release-page [data-step-next]:hover, .release-page [name=intent][value=start]:not(:disabled):hover,
+.release-page [name=intent][value=start]:not(:disabled):hover,
 .release-page .release-operation > button[type=submit]:hover, .release-page .production-editor button[type=submit]:hover { background: #0b656a; }
 .release-page .quiet { padding: 7px 5px; }
 .release-page button:disabled { cursor: not-allowed; opacity: .5; }
@@ -73,13 +73,9 @@
 .release-table button { white-space: nowrap; }
 .release-table .row-details { display: block; margin-top: 6px; font-size: 12px; }
 .compact-warning { display: block; font-size: 11px; padding: 5px; margin-top: 5px; }
-.wizard-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 22px 0 28px; }
-.wizard-steps button { background: #eaf0f5; color: #748697; border: 1px solid transparent; border-radius: 7px; padding: 13px; text-align: left; }
-.wizard-steps button[aria-current=step] { color: #166b72; background: #e7f4f2; border-color: #9ccfce; font-weight: 600; }
-.wizard-steps span { display: inline-grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; background: white; margin-right: 8px; font-size: 12px; }
 .wizard-panel { background: #fff; border: 1px solid #dce5ed; border-radius: 9px; padding: 26px; }
-.wizard-panel h2 { font-size: 19px; margin: 0 0 7px; }
-.wizard-panel .section-heading { padding: 0 0 15px; margin-bottom: 18px; }
+.wizard-panel h2 { font-size: 19px; margin: 0; }
+.wizard-panel .section-heading { padding: 18px 0 15px; margin: 18px 0 0; border-top: 1px solid #e8edf4; }
 .selection-counter { border: 1px solid #cce1e1; background: #f0f9f7; border-radius: 7px; padding: 8px 12px; white-space: nowrap; font-size: 13px; color: #346b67; }
 .selection-counter strong { margin-right: 6px; }
 .repository-picker-toolbar { display: flex; align-items: center; gap: 12px; border-top: 1px solid #e9eef4; padding: 18px 0; }
@@ -91,8 +87,7 @@
 .repository-choice strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
 .repository-choice small { display: block; color: #8b98a8; font-size: 10px; margin-top: 5px; overflow-wrap: anywhere; }
 .picker-meta { color: #728797; font-size: 11px; text-align: right; white-space: nowrap; }
-.wizard-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 14px; margin: 24px -26px -26px; padding: 18px 26px; background: #fff; border-top: 1px solid #e1e8f0; border-radius: 0 0 9px 9px; z-index: 2; }
-.wizard-footer > span { color: #7c8b9b; font-size: 12px; }
+.wizard-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 14px; margin: 24px -26px -26px; padding: 18px 26px; background: #fff; border-top: 1px solid #e1e8f0; border-radius: 0 0 9px 9px; z-index: 2; }
 .release-version-row { border: 1px solid #dce5ed; padding: 18px 20px 20px; margin: 22px 0; min-width: 0; }
 .release-version-row legend { font-weight: 600; padding: 0 8px; font-size: 15px; max-width: 100%; overflow-wrap: anywhere; }
 .version-row-header { display: flex; gap: 12px; justify-content: space-between; font-size: 12px; margin-bottom: 15px; }
@@ -111,8 +106,7 @@
 .release-advanced summary span { color: #99a4b0; font-size: 11px; margin-left: 12px; }
 .empty-inline { padding: 16px 20px; color: #748899; background: #f6f9fc; font-size: 13px; line-height: 1.7; }
 .release-version-row > small { display: block; margin-top: 18px; font-size: 11px; }
-.plan-basics { margin: 18px 0; }
-.review-table-wrap { border: 1px solid #dce5ed; border-radius: 7px; }
+.plan-basics { margin: 0 0 18px; }
 .drawer-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; }
 .drawer-heading h2 { margin: 0; overflow-wrap: anywhere; }
 .drawer-heading form button { font-size: 23px; padding: 0 10px; }
@@ -149,9 +143,6 @@
   .release-progress strong { font-size: 23px; }
   .release-tabs { gap: 18px; font-size: 13px; }
   .wizard-panel { padding: 18px; }
-  .wizard-steps { gap: 6px; }
-  .wizard-steps button { font-size: 11px; padding: 9px 5px; text-align: center; }
-  .wizard-steps span { margin: 0 auto 5px; display: grid; }
   .wizard-footer { margin: 22px -18px -18px; padding: 15px 18px; }
   .wizard-footer > .release-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
   .wizard-footer button { font-size: 12px; }

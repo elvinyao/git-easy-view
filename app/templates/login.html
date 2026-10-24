@@ -9,9 +9,7 @@
   <body class="login-body">
     <main class="login-card">
       <span class="brand-mark">g.</span>
-      <p class="eyebrow">GIT EASY VIEW</p>
       <h1>{{ t('看清每条分支的进展') }}</h1>
-      <p class="muted">{{ t('项目和分支可匿名查看。管理连接与配置时，请使用管理员账号登录。') }}</p>
       {% if error %}<p class="notice danger" role="alert">{{ t('用户名或密码不正确，请重试。') }}</p>{% endif %}
       <form method="post" action="/login" class="stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

@@ -26,7 +26,6 @@ def test_three_repository_release_and_mobile_drawer(browser, fixture_url, locale
         page.locator(f'[name="r{rid}_branch"]').select_option("release/2026.09")
         page.locator(f'[name="r{rid}_tag"]').select_option("v2026.09")
         assert len(page.locator(f'[name="r{rid}_oid"]').input_value()) == 40
-    page.locator("[data-step-next]:visible").click()
     title = "October 10 · " + locale
     page.locator('[name="title"]').fill(title)
     page.locator('[name="scheduled_date"]').fill("2026-10-10")

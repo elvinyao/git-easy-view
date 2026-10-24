@@ -12,7 +12,7 @@ from app.db import get_session
 from app.models import (AuditEvent, Branch, Deployment, GitTag, PlatformConnection, Project,
                         ProjectRepository, ReleaseItem, ReleasePlan, ReleaseSource, Repository, utc_now)
 from app.releases import current_production, mr_snapshot, plan_state, reconcile
-from app.release_forms import FormError, form_data, invalid_field, render
+from app.release_forms import FormError, form_data, render, text_field
 from app.jobs import enqueue_sync, locked_repository
 from app.providers import get_provider, validate_remote_url
 from app.providers.base import identity, optional_string, required_string
@@ -26,10 +26,7 @@ def fail(message="发布数据无效，请刷新后重试。", code=400, *, fiel
 
 
 def field(form, name, limit=1024, required=True):
-    value = form.get(name, "")
-    if not isinstance(value, str) or len(value.strip()) > limit or (required and not value.strip()):
-        invalid_field(name, limit)
-    return value.strip()
+    return text_field(form, name, limit, required)
 
 
 def integer(value, name="_form"):

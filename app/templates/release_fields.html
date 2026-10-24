@@ -20,7 +20,7 @@
       {{ field_error(prefix ~ 'branch') }}
     </div>
     <div class="search-select">
-      <label for="field-{{ prefix }}tag">Tag <small>{{ t('发布版本') }}</small></label>
+      <label for="field-{{ prefix }}tag">Tag</label>
       <input type="search" data-select-search="field-{{ prefix }}tag" placeholder="{{ t('搜索 Tag 或提交摘要') }}" aria-label="{{ t('搜索 Tag 或提交摘要') }}" autocomplete="off">
       <select data-tag-input id="field-{{ prefix }}tag" name="{{ prefix }}tag" {% if form_errors and form_errors.get(prefix ~ 'tag') %}aria-invalid="true"{% endif %}>
         <option value="">{{ t('稍后选择 Tag') }}</option>

@@ -37,7 +37,6 @@
                  {{ f.attrs('feature_prefixes') }} value="{{ f.value('feature_prefixes', repo.role_prefixes.get('feature', []) |join(',')) }}"
                  maxlength="2000">
         </label>
-        <p class="help">{{ t('前缀仅决定角色，不决定创建来源。保存后重新分析来源候选。') }}</p>
         <button class="primary">{{ t('保存并安排分析') }}</button>
       </form>
     </section>
@@ -47,14 +46,11 @@
             action="/admin/repositories/{{ repo.id }}/sync"
             class="stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        {% if repo.connection.kind == 'local' %}
-        <p class="help">{{ t('重新读取本地分支与提交，更新分析快照。') }}</p>
-        {% else %}
+        {% if repo.connection.kind != 'local' %}
         <label>
           {{ t('历史起始日期（可选）') }}
           <input type="date" name="history_since" {{ f.attrs('history_since') }} value="{{ f.value('history_since') }}">
         </label>
-        <p class="help">{{ t('获取全部开放记录，以及起始日期以来更新的关闭／合并记录。留空使用当前覆盖窗口。') }}</p>
         {% endif %}
         <button>{{ t('同步本地仓库') if repo.connection.kind == 'local' else t('立即同步 / 补充历史') }}</button>
       </form>

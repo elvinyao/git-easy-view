@@ -17,7 +17,7 @@
   <body class="{% block body_class %}{% endblock %}">
     {% block navigation %}
     <aside class="sidebar">
-      <a class="brand" href="/"><span class="brand-mark">g.</span><span>Git Easy View<small>{{ t('团队分支工作台') }}</small></span></a>
+      <a class="brand" href="/"><span class="brand-mark">g.</span><span>Git Easy View</span></a>
       <nav aria-label="{{ t('主导航') }}">
         <a href="/" class="nav-link">{{ t('◈ 项目概览') }}</a>
         <p class="nav-label">{{ t('项目') }}</p>
@@ -42,7 +42,7 @@
           <button class="quiet" type="submit">{{ t('退出登录 ↗') }}</button>
         </form>
         {% else %}
-        <strong>{{ t('匿名访问') }}</strong><small>{{ t('只读快照') }}</small>
+        <strong>{{ t('匿名访问') }}</strong>
         <a class="quiet" href="/login?next={{ (request.url.path ~ ('?' ~ request.url.query if request.url.query else ''))|urlencode }}">{{ t('管理员登录 ↗') }}</a>
         {% endif %}
       </div>
@@ -54,13 +54,9 @@
         <section class="notice danger" id="form-errors" role="alert" tabindex="-1" autofocus>
           <h2>{{ t('请检查表单内容') }}</h2>
           <ul>{% for field, error in form_errors.items() %}<li id="error-{{ field }}"><a href="#field-{{ field }}">{{ t(error) }}</a></li>{% endfor %}</ul>
-          <p>{{ t('已保留非敏感内容。密码和令牌请重新填写。') }}</p>
         </section>
       {% endif %}
       {% block content %}{% endblock %}
-      <footer class="footer">
-        {{ t('Git 提交历史与平台记录独立展示 · 所有时间为 UTC') }}
-      </footer>
     </main>
   </body>
 </html>

@@ -6,8 +6,6 @@
   </p>
   <h1>{{ t('选择仓库') }}</h1>
   {% if scan_incomplete %}<div class="notice" role="status">{{ t('部分目录未扫描：达到扫描上限或目录、Git 元数据不可读取。可导入已找到的仓库，或返回选择更小的目录继续扫描。') }} <a href="/admin/connections/{{ connection.id }}">{{ t('选择本地目录') }}</a></div>{% endif %}
-  <p class="muted">{{ t('每次最多 50 个。提交时重新检查本地 Git 目录；已导入仓库会复用分析副本。') if connection.kind == 'local' else t('每次最多 50 个。提交时重新向平台确认仓库身份与地址；已导入仓库会复用分析副本。') }}</p>
-  {% if connection.kind == 'local' %}<p class="help">{{ t('只分析本地分支和已提交历史；未提交的工作区变更不包含在快照中。') }}</p>{% endif %}
   <section class="panel detail-section">
     <form method="get" action="/admin/connections/{{ connection.id }}/repositories" class="inline-form import-search">
       <label>{{ t('搜索仓库或命名空间') }}<input name="q" value="{{ import_search }}" maxlength="255" type="search"></label>
@@ -33,7 +31,6 @@
         <button type="button" data-deselect-page>{{ t('取消本页选择') }}</button>
         <p data-selected-count role="status" aria-live="polite">{{ t('已选择 {count} / 50 个仓库', count=form_lists.get('external_ids', [])|length) }}</p>
       </div>
-      <p class="help">{{ t('选择会保留到其他页。完成导入后才会清空。') }}</p>
       <p class="notice danger" data-import-limit hidden role="alert"></p>
       <div data-selection-list class="import-selection-list"></div>
       <fieldset {{ f.attrs('external_ids') }} tabindex="-1" class="import-options">

@@ -15,7 +15,6 @@
 <div class="release-progress">
   <div><span>{{ t('本次仓库') }}</span><strong>{{ plan.items|length }}</strong></div><div><span>{{ t('已确认上线') }}</span><strong>{{ progress.deployed }} <small>/ {{ plan.items|length }}</small></strong></div><div><span>{{ t('已确认合入') }}</span><strong>{{ progress.merged }} <small>/ {{ plan.items|length }}</small></strong></div><div class="progress-complete"><span>{{ t('RLS 完成') }}</span><strong>{{ progress.completed }} <small>/ {{ plan.items|length }}</small></strong></div>
 </div>
-<p class="release-help">{{ t('实际部署后确认上线；上线与合入都确认后，此仓库才算完成。') }}</p>
 <section class="panel release-workspace" data-searchable-list>
   <div class="workspace-toolbar"><h2>{{ t('仓库发布进度') }}</h2><input type="search" data-list-search placeholder="{{ t('搜索仓库、版本或状态') }}" aria-label="{{ t('搜索仓库、版本或状态') }}"></div>
   <div class="release-scroll"><table class="release-table release-status-table"><thead><tr><th>{{ t('仓库') }}</th><th>{{ t('计划版本') }}</th><th>{{ t('上线状态') }}</th><th>{{ t('合入主干') }}</th><th>{{ t('下一步') }}</th></tr></thead><tbody>

@@ -3,7 +3,6 @@
 {% block content %}
   <header class="page-heading">
     <div>
-      <p class="eyebrow">{{ t('REPOSITORY / 仓库') }}</p>
       {% if project_return_url %}<a class="project-return" href="{{ project_return_url }}">{{ t('返回项目') }} · {{ project_return_name }}</a>{% endif %}
       <h1>{{ repo.full_name }}</h1>
       <p class="muted">{{ repo.connection.name }} {{ t('· 默认分支') }} {{ repo.default_branch or t('未知') }}</p>

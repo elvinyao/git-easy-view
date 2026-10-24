@@ -1,18 +1,14 @@
 {% extends 'base.html' %}
 {% block content %}
   <header class="page-heading">
-    <div>
-      <p class="eyebrow">{{ t('WORKSPACE') }}</p>
-      <h1>{{ t('项目概览') }}</h1>
-      <p class="muted">{{ t('从项目进入，集中查看仓库与分支的当前状态。') }}</p>
-    </div>
+    <h1>{{ t('项目概览') }}</h1>
     {% if user and user.is_admin %}<a class="button primary" href="/admin">{{ t('管理与导入 ↗') }}</a>{% endif %}
   </header>
   <div class="project-grid">
     {% for project in projects %}
     <a class="project-card" href="/projects/{{ project.id }}"><span class="project-icon">⌘</span>
     <h2>{{ project.name }}</h2>
-    <p class="muted">{{ project.description or t('查看仓库、分支与关系证据') }}</p>
+    {% if project.description %}<p class="muted">{{ project.description }}</p>{% endif %}
     {% if counts.get(project.id, 0) %}
       {% with summary=summaries[project.id] %}{% include 'sync_summary.html' %}{% endwith %}
     {% else %}

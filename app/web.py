@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.auth import session_data, verify_csrf
-from app.i18n import create_templates, translate
+from app.i18n import Message, create_templates, translate
 from app.git_service import ComparisonResult
 from app.models import (
     Branch,
@@ -34,6 +34,70 @@ STATES = {
     "missing": "未分析",
 }
 ROLES = {"main": "主干", "release": "发布", "feature": "功能", "other": "其他"}
+FIELD_LABELS = {
+    "name": "名称",
+    "username": "用户名",
+    "slug": "项目标识",
+    "description": "描述",
+    "kind": "仓库来源",
+    "base_url": "HTTPS 实例地址",
+    "local_path": "本地目录",
+    "token": "访问令牌",
+    "ca_bundle_path": "公司 CA 文件路径（可选）",
+    "sync_interval_seconds": "同步间隔（秒）",
+    "release_prefixes": "发布分支前缀（逗号分隔）",
+    "feature_prefixes": "功能分支前缀（逗号分隔）",
+    "role": "分支角色",
+    "password": "密码",
+    "active_release": "当前发布",
+    "manual_source_branch_id": "人工指定来源",
+    "main_comparison_branch_id": "主要比较对象",
+    "manual_targets": "人工计划目标",
+    "project_id": "导入到项目",
+    "external_ids": "选择仓库",
+    "history_since": "历史起始日期（可选）",
+    "title": "计划名称",
+    "scheduled_date": "计划日期（日本时间）",
+    "notes": "备注",
+    "repos": "选择仓库",
+    "branch": "发布分支",
+    "tag": "Tag",
+    "target": "合并目标",
+    "mr": "关联 MR",
+    "oid": "固定提交",
+    "confirmed_oid": "固定提交",
+    "deployed_at": "上线时间",
+    "connection_id": "平台连接",
+    "external_id": "平台仓库 ID",
+}
+REPOSITORY_FIELD = re.compile(r"r[0-9]{1,10}_(branch|tag|target|mr|oid)\Z")
+
+
+class FormError(HTTPException):
+    def __init__(self, field: str, detail: str, status_code: int = 400):
+        super().__init__(status_code, detail)
+        self.field = field
+
+
+def invalid_field(name: str, maximum: int) -> None:
+    match = REPOSITORY_FIELD.fullmatch(name)
+    label = FIELD_LABELS.get(match[1] if match else name, "发布数据")
+    raise FormError(
+        name,
+        Message(
+            "{name}：请填写有效内容（最多 {maximum} 字符）。",
+            name=Message(label),
+            maximum=maximum,
+        ),
+    )
+
+
+def text_field(form, name: str, maximum: int = 255, required: bool = True) -> str:
+    raw = form.get(name, "")
+    value = raw.strip() if isinstance(raw, str) else ""
+    if not isinstance(raw, str) or len(value) > maximum or (required and not value):
+        invalid_field(name, maximum)
+    return value
 
 
 def safe_url(value, connection=None):
@@ -275,6 +339,12 @@ def render(request, template, session, user, *, status_code=200, **context):
         query_url=lambda **changes: query_url(request, **changes),
         states={key: translate(request.state.locale, value) for key, value in STATES.items()},
         roles={key: translate(request.state.locale, value) for key, value in ROLES.items()},
+        form_values=getattr(request.state, "form_values", {}),
+        form_lists=getattr(request.state, "form_lists", {}),
+        form_errors=getattr(request.state, "form_errors", {}),
+        form_submitted=getattr(request.state, "form_submitted", False),
+        form_kind=getattr(request.state, "form_kind", ""),
+        form_item_id=getattr(request.state, "form_item_id", None),
     )
     if context.get("repo") is not None:
         repo = context["repo"]

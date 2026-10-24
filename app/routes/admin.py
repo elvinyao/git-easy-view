@@ -20,7 +20,14 @@ from app.models import (
     User,
     utc_now,
 )
-from app.web import form_data as verified_form_data, number, render as web_render
+from app.web import (
+    FIELD_LABELS,
+    FormError,
+    form_data as verified_form_data,
+    number,
+    render,
+    text_field,
+)
 from app.jobs import enqueue_sync, locked_repository
 from app.job_progress import progress_context
 from app.providers import get_provider, validate_remote_url
@@ -30,42 +37,36 @@ from app.sync import branch_role
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
-FIELD_LABELS = {
-    "name": "名称",
-    "username": "用户名",
-    "slug": "项目标识",
-    "description": "描述",
-    "kind": "仓库来源",
-    "base_url": "HTTPS 实例地址",
-    "local_path": "本地目录",
-    "token": "访问令牌",
-    "ca_bundle_path": "公司 CA 文件路径（可选）",
-    "sync_interval_seconds": "同步间隔（秒）",
-    "release_prefixes": "发布分支前缀（逗号分隔）",
-    "feature_prefixes": "功能分支前缀（逗号分隔）",
-    "role": "分支角色",
-    "password": "密码",
-    "active_release": "当前发布",
-    "manual_source_branch_id": "人工指定来源",
-    "main_comparison_branch_id": "主要比较对象",
-    "manual_targets": "人工计划目标",
-    "project_id": "导入到项目",
-    "external_ids": "选择仓库",
-    "history_since": "历史起始日期（可选）",
+ADMIN_FIELDS = {
+    "name",
+    "username",
+    "slug",
+    "description",
+    "kind",
+    "base_url",
+    "local_path",
+    "ca_bundle_path",
+    "sync_interval_seconds",
+    "release_prefixes",
+    "feature_prefixes",
+    "role",
+    "active_release",
+    "manual_source_branch_id",
+    "main_comparison_branch_id",
+    "manual_targets",
+    "project_id",
+    "external_ids",
+    "history_since",
+    "connection_id",
+    "is_admin",
+    "is_active",
 }
-
-
-class FormError(HTTPException):
-    def __init__(self, field, detail, status_code=400):
-        super().__init__(status_code, detail)
-        self.field = field
 
 
 async def form_data(request: Request):
     form = await verified_form_data(request)
-    allowed = set(FIELD_LABELS) | {"connection_id", "is_admin", "is_active"}
     request.state.form_values = {
-        key: str(form[key]) for key in allowed - {"token", "password"} if key in form
+        key: str(form[key]) for key in ADMIN_FIELDS if key in form
     }
     # Instance addresses never accept query, fragment, or account components;
     # strip them from error recovery because pasted URLs can contain secrets.
@@ -76,15 +77,8 @@ async def form_data(request: Request):
         key: [str(value) for value in form.getlist(key)]
         for key in ("external_ids", "manual_targets")
     }
+    request.state.form_submitted = True
     return form
-
-
-def render(request, template, session, user, **context):
-    context.setdefault("form_values", getattr(request.state, "form_values", {}))
-    context.setdefault("form_lists", getattr(request.state, "form_lists", {}))
-    context.setdefault("form_errors", getattr(request.state, "form_errors", {}))
-    context.setdefault("form_submitted", hasattr(request.state, "form_values"))
-    return web_render(request, template, session, user, **context)
 
 
 def recover_form(request, exc):
@@ -153,20 +147,6 @@ def commit(session):
     except IntegrityError:
         session.rollback()
         raise HTTPException(400, "名称或标识已存在，请修改后重试。") from None
-
-
-def text_field(form, name, maximum=255, required=True):
-    value = str(form.get(name, "")).strip()
-    if len(value) > maximum or (required and not value):
-        raise FormError(
-            name,
-            Message(
-                "{name}：请填写有效内容（最多 {maximum} 字符）。",
-                name=Message(FIELD_LABELS.get(name, name)),
-                maximum=maximum,
-            ),
-        )
-    return value
 
 
 @router.get("")

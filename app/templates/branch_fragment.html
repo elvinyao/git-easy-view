@@ -39,7 +39,6 @@
       <strong>{{ view.comparison.behind if view.comparison and view.comparison.behind is not none else '—' }}</strong><span>{{ t('落后（对象分支独有）') }}</span>
     </div>
   </div>
-  <p class="muted">{{ t('提交可达性不代表内容或功能等价。Squash、rebase、cherry-pick 或 revert 后，平台合并记录可能与提交包含关系不同。') }}</p>
   <form method="get" class="inline-form">
     <input type="hidden" name="lang" value="{{ locale }}">
     {% if project_return_url %}<input type="hidden" name="return_to" value="{{ project_return_url }}">{% endif %}
@@ -63,7 +62,6 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="target_id" value="{{ view.primary.branch_id }}">
       <button class="primary">{{ t('请求本地分析') }}</button>
-      <small class="muted">{{ t('仅分析已有 Git 副本，由后台计算。') }}</small>
     </form>
   {% endif %}
   <div class="job-status" role="status" data-repository="{{ repo.id }}"></div>
@@ -71,7 +69,6 @@
 <div class="detail-grid">
   <section class="panel detail-section">
     <h2>{{ t('来源证据') }}</h2>
-    <p class="muted">{{ t('Git 不记录永久父分支。共同祖先说明历史关系，不能证明创建来源。') }}</p>
     {% for source in view.sources %}
     <article class="evidence"><strong class="wrap-ref">{{ source.name }}</strong> <span class="badge">{{ t('人工指定') if source.kind == 'manual' else t('推测') }}</span>
     {% if source.deleted %}<small>{{ t('来源分支当前不存在') }}</small>{% endif %}
@@ -108,7 +105,6 @@
 {% else %}
   <p>{{ t('无计划目标') }}</p>
 {% endfor %}
-<p class="muted">{{ t('默认与主干比较不会自动生成计划目标。') }}</p>
 </section>
 </div>
 <section class="panel detail-section">

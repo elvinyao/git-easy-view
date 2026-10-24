@@ -7,7 +7,6 @@
 {% block content %}
   <header class="page-heading overview-heading">
     <div>
-      <p class="eyebrow">{{ t('项目分支地图') }}</p>
       <h1>{{ project.name }}</h1>
       {% if project.description %}<p class="muted overview-description" title="{{ project.description }}">{{ project.description }}</p>{% endif %}
     </div>
@@ -45,9 +44,7 @@
   </form>
   {% if repositories %}
   <section class="repository-summary" aria-labelledby="repository-summary-heading">
-    <div class="section-heading"><h2 id="repository-summary-heading">{{ t('仓库摘要') }}</h2><span class="muted">{{ t('点击分支或 hash 就地查看详情') }}</span></div>
-    {% if user and user.is_admin %}<form id="release-selection" method="get" action="/projects/{{ project.id }}/releases/new"><button type="submit">{{ t('为选中仓库创建 RLS 计划') }}</button></form>{% endif %}
-    {% if query.q or query.role or query.relation %}<p class="muted">{{ t('摘要显示完整仓库，分支列表遵循筛选。') }}</p>{% endif %}
+    <div class="section-heading"><h2 id="repository-summary-heading">{{ t('仓库摘要') }}</h2>{% if user and user.is_admin %}<form id="release-selection" method="get" action="/projects/{{ project.id }}/releases/new"><button type="submit">{{ t('为选中仓库创建 RLS 计划') }}</button></form>{% endif %}</div>
     <div class="summary-table-wrap"><table class="summary-table">
       <thead><tr><th>{{ t('仓库') }}</th><th>{{ t('当前本番') }} / {{ t('下次发布') }}</th><th>{{ t('默认主干') }}</th><th>{{ t('发布分支') }}</th><th>{{ t('最新功能分支') }}</th><th>{{ t('同步状态') }}</th></tr></thead>
       <tbody>{% for repo in repositories %}{% set overview = overviews[repo.id] %}{% set status = repo_statuses[repo.id] %}
@@ -76,7 +73,6 @@
   <section class="repository-list overview-list" aria-label="{{ t('仓库分支总览') }}">
     <div class="section-heading overview-section-heading">
       <h2>{{ t('仓库分支总览') }}</h2>
-      <span class="muted">{{ t('全部分支 · 当前发布优先 · 最近提交排序') }}</span>
     </div>
     {% for repo in repositories %}
       {% set overview = overviews[repo.id] %}
@@ -103,7 +99,6 @@
           <section class="overview-cell overview-main" aria-label="{{ t('默认主干') }}">
             <div class="overview-default-label">
               <h3><i class="overview-column-dot is-default"></i>{{ t('默认主干') }}</h3>
-              <p class="overview-baseline-note">{{ t('以默认主干为基准，展示当前提交包含关系。') }}{% if query.q or query.role or query.relation %} {{ t('主干作为比较上下文保留') }}{% endif %}</p>
             </div>
             {% if overview.main %}{{ commit(overview.main) }}{% else %}<p class="overview-empty">{{ t('正在导入') if not repo.git_synced_at else t('空仓库：当前没有分支。') if overview.is_empty else t('默认主干不可用') }}</p>{% endif %}
             <div class="overview-role-counts">
@@ -127,7 +122,7 @@
             <div class="overview-branch-scroll" tabindex="0" role="region" aria-label="{{ t('{repository} 的全部分支', repository=repo.full_name) }}">
               {% for group in overview.groups %}
                 <section class="overview-cell overview-{{ 'releases' if group.role == 'release' else 'features' if group.role == 'feature' else 'other-main' if group.role == 'main' else 'others' }}" id="{{ 'releases' if group.role == 'release' else 'features' if group.role == 'feature' else group.role }}-{{ repo.id }}" aria-label="{{ t(group.label) }}">
-                  <h3><i class="overview-column-dot {{ group.role }}"></i>{{ t(group.label) }} <span>{{ group.views|length }}</span><small>{{ t('当前发布优先 · 最近提交排序') if group.role == 'release' else t('最近提交优先') }}</small></h3>
+                  <h3><i class="overview-column-dot {{ group.role }}"></i>{{ t(group.label) }} <span>{{ group.views|length }}</span></h3>
                   <div class="overview-branch-grid">
                     {% for view in group.views %}{{ commit(view) }}{% endfor %}
                   </div>
@@ -152,7 +147,7 @@
       {% if query.page * 50 < total %}<a class="button" href="{{ query_url(page=query.page + 1) }}">{{ t('下一页 →') }}</a>{% endif %}
     </div>
   </section>
-  <p class="overview-legend"><span class="overview-legend-item"><b>↑</b> {{ t('领先主干') }}</span><span class="overview-legend-item"><b>↓</b> {{ t('落后主干') }}</span><span>{{ t('点击 hash 查看提交 · 点击分支查看关系') }}</span></p>
+  <p class="overview-legend"><span class="overview-legend-item"><b>↑</b> {{ t('领先主干') }}</span><span class="overview-legend-item"><b>↓</b> {{ t('落后主干') }}</span></p>
   <dialog id="project-inspector" aria-labelledby="inspector-heading" data-loading="{{ t('正在加载详情…') }}" data-failed="{{ t('详情加载失败，原有概览未改变。') }}" data-retry="{{ t('重试') }}" data-copy-success="{{ t('已复制提交哈希。') }}" data-copy-failed="{{ t('无法复制，请手动复制提交哈希。') }}">
     <header class="inspector-header"><h2 id="inspector-heading">{{ t('分支与提交详情') }}</h2><button type="button" class="inspector-close" aria-label="{{ t('关闭详情') }}">×</button></header>
     <div class="inspector-feedback" role="status" aria-live="polite"></div><div id="project-inspector-body"></div>

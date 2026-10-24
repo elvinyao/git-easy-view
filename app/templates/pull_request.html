@@ -18,7 +18,6 @@
     </p>
     <p>{{ t('合并时间') }} {{ pr.merged_at|date if pr.merged_at else t('未知') }}</p>
     <p>{{ t('获取时间') }} {{ pr.fetched_at|date }}</p>
-    <p class="muted">{{ t('历史记录独立于当前分支的提交关系。分支删除、重建或新增提交后，不自动代表当前分支内容。') }}</p>
     {% if pr.web_url|safe_url(repo.connection) %}
       <a class="button"
          href="{{ pr.web_url|safe_url(repo.connection) }}"

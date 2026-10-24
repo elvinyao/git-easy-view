@@ -1,50 +1,39 @@
 """Release form state and recovery after a rejected transaction."""
 
-import re
-
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.auth import session_data
-from app.i18n import Message
 from app.models import User
-from app.web import form_data as verified_form_data, render as web_render
+from app.web import (
+    FIELD_LABELS,
+    FormError,
+    REPOSITORY_FIELD,
+    form_data as verified_form_data,
+    invalid_field,
+    render,
+    text_field,
+)
 
-
-FIELD_LABELS = {
-    "title": "计划名称",
-    "scheduled_date": "计划日期（日本时间）",
-    "notes": "备注",
-    "repos": "选择仓库",
-    "branch": "发布分支",
-    "tag": "Tag",
-    "target": "合并目标",
-    "mr": "关联 MR",
-    "oid": "固定提交",
-    "confirmed_oid": "固定提交",
-    "deployed_at": "上线时间",
-    "connection_id": "平台连接",
-    "external_id": "平台仓库 ID",
+FORM_FIELDS = {
+    "title",
+    "scheduled_date",
+    "notes",
+    "branch",
+    "tag",
+    "target",
+    "mr",
+    "oid",
+    "confirmed_oid",
+    "deployed_at",
+    "connection_id",
+    "external_id",
+    "version",
+    "current_id",
+    "rollback_id",
+    "action",
+    "intent",
 }
-FORM_FIELDS = set(FIELD_LABELS) - {"repos"} | {
-    "version", "current_id", "rollback_id", "action", "intent", "wizard_step",
-}
-REPOSITORY_FIELD = re.compile(r"r[0-9]{1,10}_(branch|tag|target|mr|oid)\Z")
-
-
-class FormError(HTTPException):
-    def __init__(self, field: str, detail: str, status_code: int = 400):
-        super().__init__(status_code, detail)
-        self.field = field
-
-
-def invalid_field(name: str, maximum: int) -> None:
-    match = REPOSITORY_FIELD.fullmatch(name)
-    label = FIELD_LABELS.get(match[1] if match else name, "发布数据")
-    raise FormError(name, Message(
-        "{name}：请填写有效内容（最多 {maximum} 字符）。",
-        name=Message(label), maximum=maximum,
-    ))
 
 
 async def form_data(request: Request):
@@ -56,18 +45,9 @@ async def form_data(request: Request):
         if isinstance(value, str) and (key in FORM_FIELDS or REPOSITORY_FIELD.fullmatch(key))
     }
     request.state.form_lists = {"repos": [value for value in form.getlist("repos") if isinstance(value, str)]}
+    request.state.form_submitted = True
     request.state.release_form_submitted = True
     return form
-
-
-def render(request, template, session, user, **context):
-    context.setdefault("form_values", getattr(request.state, "form_values", {}))
-    context.setdefault("form_lists", getattr(request.state, "form_lists", {}))
-    context.setdefault("form_errors", getattr(request.state, "form_errors", {}))
-    context.setdefault("form_submitted", getattr(request.state, "release_form_submitted", False))
-    context.setdefault("form_kind", getattr(request.state, "form_kind", ""))
-    context.setdefault("form_item_id", getattr(request.state, "form_item_id", None))
-    return web_render(request, template, session, user, **context)
 
 
 def recover_form(request: Request, exc):
