@@ -26,7 +26,7 @@ Python 3.13、FastAPI、SQLAlchemy / Alembic、Jinja2、CSS / JavaScript、同�
 | `.agent/` | Docker runner、デプロイ、サンプル、パッケージ検証、テストイメージ |
 | `runtime/` | Git 管理外の env、CA、アクセス情報、画像、検証結果 |
 
-変更前にルートの [AGENTS.md](../../AGENTS.md) を読んでください。`docs/superpowers/` は過去の設計であり、権限の一部は現在の匿名閲覧ルールに置き換わっています。
+変更前にルートの [AGENTS.md](../../AGENTS.md) を読んでください。
 
 ## 2. 実行ルールと準備
 

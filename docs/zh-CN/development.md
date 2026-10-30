@@ -26,7 +26,7 @@ Python 3.13，FastAPI，SQLAlchemy / Alembic，Jinja2，CSS / JavaScript 与 ven
 | `.agent/` | Docker runner、部署、示例、安装包检查与测试镜像 |
 | `runtime/` | 忽略提交的环境、CA、访问资料、截图和验证结果 |
 
-开始修改前阅读根目录 [AGENTS.md](../../AGENTS.md)。`docs/superpowers/` 是历史设计，部分权限描述已被当前匿名读取规则替代。
+开始修改前阅读根目录 [AGENTS.md](../../AGENTS.md)。
 
 ## 2. 执行规则与环境准备
 

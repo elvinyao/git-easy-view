@@ -6,13 +6,13 @@
 
 Open **Release management** from a project. Reading is public; changes require an administrator. The **Release plans** tab shows draft, active and completed plans. The separate **Production overview** tab lets you search repositories, check versions actually running and record production where it is missing.
 
-Create an RLS plan in three steps:
+Create an RLS plan on a single-page form:
 
-1. **Select repositories**: Search by name or namespace and choose 1–50 repositories. You can select the filtered results, clear the selection and check the selected count. Selecting repositories in the project overview opens creation at step 2; you can still go back to add or remove repositories.
-2. **Choose versions**: Fill in only the selected repositories. Search and select actual branches and tags from the lists, then check the short hash, commit summary and time. Expand **More settings** to change the default merge target or link an MR. Tags are synchronized from Git, including lightweight and annotated tags pointing to commits. Non-commit tags are excluded. You can save a draft before tags are ready.
-3. **Review plan**: Enter a name, scheduled date in Japan time and optional notes. Review each repository's version, then choose **Save draft** or **Save and start plan**. Incomplete version settings show a reason and disable starting; you can continue editing a draft later. Starting pins all versions and prevents further edits.
+1. **Plan basics**: Enter a name, scheduled date in Japan time and optional notes.
+2. **Select repositories**: Search by name or namespace and choose 1–50 repositories. You can select the filtered results, clear the selection and check the selected count, or preselect repositories from the project overview.
+3. **Choose versions and start**: Version rows appear immediately on the same page for each selected repository. Search and select actual branches and tags from the lists, then check the short hash, commit summary and time. Expand **More settings** to change the default merge target or link an MR. Tags are synchronized from Git, including lightweight and annotated tags pointing to commits. Non-commit tags are excluded. Choose **Save draft** before tags are ready, or **Save and start plan** once every selected repository has a valid branch, tag and merge target. Starting pins all versions and prevents further edits.
 
-Going back preserves your input. If submission fails, the original form retains the name, date, selections, MR and notes, with errors beside the affected fields. Select an unavailable branch or tag again; the form does not silently switch to the latest version.
+If submission fails, the original form retains the name, date, selections, MR and notes, with errors beside the affected fields. Select an unavailable branch or tag again; the form does not silently switch to the latest version.
 
 Plan details show each repository in a row with its planned version, deployment status, merge status and **Next action**, plus completion counts at the top. After actual deployment, **Confirm deployment** opens the corresponding drawer form. Confirm that the pinned version is running to update production for this project. Expand the optional controls to adjust deployment time or add notes. Then use **Verify merge** to link a specific MR for verification after synchronization, or enter the required merge evidence for manual confirmation. Read-only users can inspect the same status and evidence through **Details**. A repository is complete only when deployment and merge are both confirmed; every repository must complete before the plan completes. Overdue plans are highlighted. Cancelling a plan preserves deployments and does not undo them.
 
@@ -30,7 +30,7 @@ The application reads platform APIs, HTTPS Git, or local repositories mounted re
 
 ## 2. Access, permissions, and language
 
-The default local address is [http://127.0.0.1:8766](http://127.0.0.1:8766). Your operator supplies the production address.
+The default local address is [http://127.0.0.1:8766](http://127.0.0.1:8766). Your operator supplies the production address. No accounts are created automatically on first startup; run `seed-local.py` locally to create `demo-admin` and `demo-member` (with passwords in `runtime/demo-access.json`), or run `app.cli create-user --username admin --admin` to create your own administrator (see [Documentation index](../README.md)).
 
 | Visitor | Available actions |
 |---|---|

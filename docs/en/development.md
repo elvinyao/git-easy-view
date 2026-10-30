@@ -26,7 +26,7 @@ Python 3.13, FastAPI, SQLAlchemy / Alembic, Jinja2, CSS / JavaScript, and vendor
 | `.agent/` | Docker runner, deployment, demo, package checks, verification images |
 | `runtime/` | Ignored configuration, CA, access files, screenshots, and verification output |
 
-Read the root [AGENTS.md](../../AGENTS.md) before editing. `docs/superpowers/` contains historical design; some permissions there have been superseded by public reading.
+Read the root [AGENTS.md](../../AGENTS.md) before editing.
 
 ## 2. Execution policy and setup
 
