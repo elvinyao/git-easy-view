@@ -13,13 +13,47 @@
 - 三语文档总入口：[docs/README.md](docs/README.md)
 - 独立部署入口（支持内网代理/CA 与个人电脑直连）：`bash deploy/deploy.sh --init` → `bash deploy/deploy.sh`（[中文](deploy/README.md) · [日本語](deploy/README.ja.md) · [English](deploy/README.en.md)）
 
-## 快速启动与初始账号
+## 部署、启停与初始账号
+
+仅需 Docker 正在运行（无需宿主机安装 Python 或 Node.js），所有操作包含两套入口：
+- **日常开发与本地运行**：`bash .agent/run.sh ...`
+- **独立内网/服务器部署**（支持代理与企业 CA 证书）：`bash deploy/deploy.sh ...`
+
+### 1. 部署与启动（Deploy & Start）
 
 ```bash
+# 首次部署或代码更新后重部署（生成 runtime/local.env、构建镜像、迁移数据库、启动并等待健康检查）
 bash .agent/run.sh deploy
+
+# 源码未改动，快速启动/重新部署（跳过镜像构建）
+bash .agent/run.sh deploy --no-build
+
+# 仅启动已停止的容器
+bash .agent/run.sh compose --env-file runtime/local.env start web
 ```
 
-访问 [http://127.0.0.1:8766](http://127.0.0.1:8766)。配置生成在 `runtime/local.env`，重部署保留账号、数据和密钥。**首次部署不自动创建任何账号或示例数据**（`users` 表为空，无硬编码默认密码）：
+本地默认访问地址：[http://127.0.0.1:8766](http://127.0.0.1:8766)（重复执行 `deploy` 保留已有密钥、数据库和账号）。
+
+### 2. 停止、重启与状态日志（Stop, Restart & Logs）
+
+```bash
+# 停止服务（保留容器与 SQLite 数据卷）
+bash .agent/run.sh compose --env-file runtime/local.env stop web
+
+# 重启服务
+bash .agent/run.sh compose --env-file runtime/local.env restart web
+
+# 移除容器但保留数据卷（切勿加 -v，否则会删除 SQLite 数据库卷）
+bash .agent/run.sh compose --env-file runtime/local.env down
+
+# 查看运行状态与实时日志
+bash .agent/run.sh compose --env-file runtime/local.env ps
+bash .agent/run.sh compose --env-file runtime/local.env logs -f --tail=100 web
+```
+
+### 3. 初始账号与密码
+
+**首次部署不自动创建任何账号或示例数据**（`users` 表为空，无硬编码默认密码）：
 
 ```bash
 # 方式 A：导入示例数据与演示账号（demo-admin / demo-member，随机密码保存在 runtime/demo-access.json）
@@ -29,7 +63,20 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps -T to
 bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username admin --admin
 ```
 
-生产环境使用 `bash .agent/run.sh deploy --production --wait-timeout 300`（生成独立 `runtime/production.env` 与数据卷，默认端口 `8767`，需另行配置 HTTPS 反向代理）。旧版 PostgreSQL 实例首次迁移至 SQLite 可执行 `bash .agent/run.sh deploy --migrate-sqlite`。
+### 4. 生产环境与独立部署（Production / Standalone）
+
+```bash
+# 生产实例（生成独立 runtime/production.env 与独立数据卷，默认端口 8767，需另配 HTTPS 反向代理）
+bash .agent/run.sh deploy --production --wait-timeout 300
+bash .agent/run.sh compose --env-file runtime/production.env stop web
+
+# 独立部署脚本（适合内网代理、企业 CA 证书环境）
+bash deploy/deploy.sh --init
+bash deploy/deploy.sh
+bash deploy/deploy.sh compose --env-file runtime/local.env stop web
+```
+
+旧版 PostgreSQL 实例首次迁移至 SQLite 可执行 `bash .agent/run.sh deploy --migrate-sqlite`。
 
 ## 核心功能摘要
 
