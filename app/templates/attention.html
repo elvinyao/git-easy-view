@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}{{ t('需要处理') }} · {{ project.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/project.css">{% endblock %}
+{% block content %}
+  <p class="eyebrow"><a href="/projects/{{ project.id }}">← {{ project.name }}</a></p>
+  <header class="page-heading">
+    <div>
+      <h1>{{ t('需要处理') }}</h1>
+      <p class="muted">{{ t('根据最近一次同步的快照得出，不会访问远端。清理分支、合并等操作请在代码平台完成。') }}</p>
+    </div>
+    <a class="button" href="/projects/{{ project.id }}/unreleased">{{ t('未上线变更') }} →</a>
+  </header>
+  {% if not groups %}
+    <section class="empty panel">
+      <h2>{{ t('目前没有需要处理的事项') }}</h2>
+      <p>{% if repository_count %}{{ t('没有同步失败、超期计划、未合回的发布分支或可清理的分支。') }}{% else %}{{ t('这个项目还没有仓库。') }}{% endif %}</p>
+    </section>
+  {% endif %}
+  {% for group in groups %}
+    <section class="panel attention-group" id="attention-{{ group.key }}">
+      <div class="section-heading"><h2>{{ t(group.title) }} <span class="badge">{{ group.total }}</span></h2></div>
+      <p class="muted">{{ t(group.hint) }}</p>
+      <ul class="attention-list">
+        {% for item in group.items %}
+          <li>
+            <a href="{{ item.href }}"><strong>{{ item.label }}</strong></a>
+            {% if item.repository %}<small class="muted">{{ item.repository }}</small>{% endif %}
+            <span>{{ t(item.detail) }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+      {% if group.total > group.items|length %}<p class="muted">{{ t('仅显示前 {shown} 项，共 {total} 项。', shown=group.items|length, total=group.total) }}</p>{% endif %}
+    </section>
+  {% endfor %}
+{% endblock %}

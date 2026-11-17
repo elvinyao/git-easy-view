@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.auth import current_user, login_destination, safe_next, session_data, set_session, verify_csrf
+from app.auth import current_user, has_users, login_destination, safe_next, session_data, set_session, verify_csrf
 from app.config import Settings
 from app.db import make_engine
 from app.i18n import (
@@ -62,11 +62,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     from app.routes import projects, repositories, admin, releases
+    from app import first_run
 
     app.include_router(projects.router)
     app.include_router(repositories.router)
     app.include_router(admin.router)
     app.include_router(releases.router)
+    app.include_router(first_run.router)
     app.mount(
         "/static",
         StaticFiles(directory=str(Path(__file__).parent / "static")),
@@ -139,6 +141,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/login")
     def login_page(request: Request):
+        with Session(app.state.engine) as session:
+            if not has_users(session):
+                return RedirectResponse("/setup", status_code=303)
         existing = session_data(request)
         csrf = existing["csrf"] if existing else None
         if csrf is None:

@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% block title %}{{ t('未上线变更') }} · {{ project.name }}{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/project.css">{% endblock %}
+{% block content %}
+  <p class="eyebrow"><a href="/projects/{{ project.id }}">← {{ project.name }}</a></p>
+  <header class="page-heading">
+    <div>
+      <h1>{{ t('未上线变更') }}</h1>
+      <p class="muted">{{ t('对比每个仓库已登记的线上版本与默认主干：主干上哪些提交和已合并的 PR/MR 还没有上线。') }}</p>
+    </div>
+    <a class="button" href="/projects/{{ project.id }}/releases?tab=production">{{ t('本番概览') }} →</a>
+  </header>
+  <div class="overview-status-bar">
+    <div class="overview-totals">
+      <span><strong>{{ rows|length }}</strong> {{ t('项目仓库') }}</span>
+      <span><strong>{{ recorded }}</strong> {{ t('已登记线上版本') }}</span>
+      <span><strong>{{ pending }}</strong> {{ t('有未上线变更') }}</span>
+    </div>
+  </div>
+  {% if not rows %}
+    <section class="empty panel"><h2>{{ t('这个项目还没有仓库。') }}</h2></section>
+  {% endif %}
+  {% for row in rows %}
+    <details class="panel unreleased-row" {% if row.ahead %}open{% endif %}>
+      <summary>
+        <strong>{{ row.repo.name }}</strong>
+        <small class="muted">{{ row.repo.full_name }}</small>
+        {% if row.production is none %}<span class="badge">{{ t('尚未记录本番') }}</span>
+        {% elif row.error %}<span class="badge">{{ t('暂时无法比较') }}</span>
+        {% elif row.ahead %}<span class="badge attention">{{ t('{count} 个提交未上线', count=row.ahead) }}</span>
+        {% elif row.ahead == 0 %}<span class="badge healthy">{{ t('主干已全部上线') }}</span>
+        {% else %}<span class="badge">{{ t('默认主干不可用') }}</span>{% endif %}
+      </summary>
+      {% if row.production is none %}
+        <p class="muted">{{ t('登记线上正在运行的版本后，才能看出主干多了什么。') }}</p>
+        <a class="button" href="/projects/{{ project.id }}/production/{{ row.repo.id }}">{{ t('登记本番') }} →</a>
+      {% else %}
+        <p>
+          {{ t('当前本番') }}：<a href="/projects/{{ project.id }}/production/{{ row.repo.id }}"><strong>{{ row.production.tag_name or row.production.branch_name }}</strong></a>
+          <code title="{{ row.production.commit_oid }}">{{ row.production.commit_oid[:8] }}</code>
+          <span class="muted">· {{ t('上线时间') }} {{ row.production.deployed_at|date }}</span>
+          {% if row.baseline %}<span class="muted">· {{ t('默认主干') }} <code>{{ row.baseline.name }}</code>{% if row.baseline.head_oid %} <code>{{ row.baseline.head_oid[:8] }}</code>{% endif %}</span>{% endif %}
+        </p>
+        {% if row.error %}<p class="notice">{{ t(row.error) }}</p>{% endif %}
+        {% if row.behind %}<p class="notice">{{ t('线上版本有 {count} 个提交不在主干中（例如发布分支上的修复），下次发布前请确认已合回。', count=row.behind) }}</p>{% endif %}
+        {% if row.pull_requests %}
+          <h3>{{ t('已合并、尚未上线的 PR/MR') }} <span class="badge">{{ row.pull_requests|length }}</span></h3>
+          <ul class="attention-list">
+            {% for pr in row.pull_requests %}
+              <li>
+                <a href="/repositories/{{ row.repo.id }}/pull-requests/{{ pr.id }}"><strong>{{ pr.title }}</strong></a>
+                <small class="muted">{{ pr.source_branch or t('来源未知') }} → {{ pr.target_branch or t('目标未知') }}</small>
+                <span>{{ pr.merged_at|date if pr.merged_at else '' }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if row.commits %}
+          <h3>{{ t('未上线的提交') }} <span class="badge">{{ row.ahead }}</span></h3>
+          <ul class="attention-list commits">
+            {% for commit in row.commits %}
+              <li>
+                <code title="{{ commit.oid }}">{{ commit.oid[:8] }}</code>
+                <strong>{{ commit.subject }}</strong>
+                <small class="muted">{{ commit.author_name }} · {{ commit.authored_at|date }}</small>
+              </li>
+            {% endfor %}
+          </ul>
+          {% if row.truncated %}<p class="muted">{{ t('仅显示最近 {shown} 个提交，共 {total} 个。', shown=row.commits|length, total=row.ahead) }}</p>{% endif %}
+        {% endif %}
+      {% endif %}
+    </details>
+  {% endfor %}
+{% endblock %}

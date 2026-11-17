@@ -11,6 +11,8 @@
       {% if project.description %}<p class="muted overview-description" title="{{ project.description }}">{{ project.description }}</p>{% endif %}
     </div>
     <div class="overview-heading-actions">
+      <a class="button {{ 'attention-button' if attention_count else '' }}" href="/projects/{{ project.id }}/attention">{{ t('需要处理') }}{% if attention_count %} <span class="badge">{{ attention_count }}</span>{% endif %}</a>
+      <a class="button" href="/projects/{{ project.id }}/unreleased">{{ t('未上线变更') }}</a>
       <a class="button" href="/projects/{{ project.id }}/releases">{{ t('发布管理') }}</a>
       <nav class="overview-density" aria-label="{{ t('显示方式') }}">
         <a href="{{ query_url(density=None, open_repos=None, closed_repos=None) }}" aria-current="{{ 'true' if query.density == 'full' else 'false' }}">{{ t('全部展开') }}</a>

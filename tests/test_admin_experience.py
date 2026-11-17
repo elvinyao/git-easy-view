@@ -136,7 +136,7 @@ def test_import_failure_does_not_signal_basket_clear_and_success_does(app, clien
 @pytest.mark.parametrize('action,expected', [
     ('/admin/repositories/{repo}/sync', '/admin/repositories/{repo}'),
     ('/admin/connections/{connection}/check', '/admin/connections/{connection}'),
-    ('/admin/projects/{project}/members', '/admin/projects/{project}'),
+    ('/admin/settings/access', '/admin'),
     ('/admin/projects', '/admin'),
     ('/admin/repositories/import', '/admin'),
     ('/admin/users', '/admin/users/new'),

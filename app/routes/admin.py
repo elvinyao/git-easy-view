@@ -4,16 +4,16 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import require_admin, session_data
+from app.auth import REQUIRE_LOGIN, login_required, require_admin, session_data
 from app.db import get_session
 from app.i18n import Message
 from app.models import (
+    AppSetting,
     AuditEvent,
     Branch,
     BranchConfig,
     PlatformConnection,
     Project,
-    ProjectMember,
     ProjectRepository,
     Repository,
     SyncJob,
@@ -155,19 +155,50 @@ def home(
     user: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
+    connections = session.scalars(select(PlatformConnection).order_by(PlatformConnection.name)).all()
+    has_projects = session.scalar(select(Project.id).limit(1)) is not None
+    imported = session.scalar(select(ProjectRepository.id).limit(1)) is not None
+    usable = next((connection for connection in connections if not connection.auth_disabled), None)
+    steps = [
+        dict(title="添加仓库来源", hint="连接 GitHub、GitLab，或选择服务器上的本地 Git 目录。",
+             done=bool(connections), href="/admin/connections/new"),
+        dict(title="创建项目", hint="项目是一组仓库的看板，例如一个团队或一条产品线。",
+             done=has_projects, href="#create-project"),
+        dict(title="导入仓库", hint="从仓库来源中勾选仓库并放进项目，首次同步会自动开始。",
+             done=imported, href=f"/admin/connections/{usable.id}/repositories" if usable and has_projects else None),
+    ]
     return render(
         request,
         "admin.html",
         session,
         user,
         users=session.scalars(select(User).order_by(User.username)).all(),
-        connections=session.scalars(
-            select(PlatformConnection).order_by(PlatformConnection.name)
-        ).all(),
+        connections=connections,
         repositories=session.scalars(
             select(Repository).order_by(Repository.full_name)
         ).all(),
+        onboarding=None if all(step["done"] for step in steps) else steps,
+        require_login=login_required(session),
     )
+
+
+@router.post("/settings/access")
+def access_settings(
+    request: Request,
+    user: User = Depends(require_admin),
+    form=Depends(form_data),
+    session: Session = Depends(get_session),
+):
+    enabled = "require_login" in form
+    setting = session.get(AppSetting, REQUIRE_LOGIN)
+    if setting is None:
+        setting = AppSetting(key=REQUIRE_LOGIN)
+        session.add(setting)
+    setting.value = "1" if enabled else "0"
+    session.add(AuditEvent(actor_id=user.id, action="settings.access", entity_type="app_settings",
+                           details={"require_login": enabled}))
+    commit(session)
+    return RedirectResponse("/admin", 303)
 
 
 @router.post("/projects")
@@ -338,21 +369,7 @@ def project_form(
     session: Session = Depends(get_session),
 ):
     project = get_or_404(session, Project, project_id)
-    members = session.scalars(
-        select(User)
-        .join(ProjectMember)
-        .where(ProjectMember.project_id == project.id)
-        .order_by(User.username)
-    ).all()
-    return render(
-        request,
-        "admin_project.html",
-        session,
-        user,
-        project=project,
-        members=members,
-        users=session.scalars(select(User).order_by(User.username)).all(),
-    )
+    return render(request, "admin_project.html", session, user, project=project)
 
 
 @router.post("/projects/{project_id}")
@@ -368,33 +385,6 @@ def edit_project(
         form, "description", 4000, False
     )
     audit(session, user, "project.update", project)
-    commit(session)
-    return RedirectResponse(f"/admin/projects/{project.id}", 303)
-
-
-@router.post("/projects/{project_id}/members")
-def membership(
-    project_id: int,
-    request: Request,
-    user: User = Depends(require_admin),
-    form=Depends(form_data),
-    session: Session = Depends(get_session),
-):
-    project = get_or_404(session, Project, project_id)
-    person = get_or_404(session, User, number(form.get("user_id"), 0))
-    member = session.scalar(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project.id, ProjectMember.user_id == person.id
-        )
-    )
-    action = form.get("action")
-    if action not in ("grant", "revoke"):
-        raise HTTPException(400, "请选择授予或撤销权限")
-    if action == "grant" and not member:
-        session.add(ProjectMember(project_id=project.id, user_id=person.id))
-    if action == "revoke" and member:
-        session.delete(member)
-    audit(session, user, "membership." + action, project, {"user_id": person.id})
     commit(session)
     return RedirectResponse(f"/admin/projects/{project.id}", 303)
 

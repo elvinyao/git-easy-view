@@ -52,8 +52,10 @@ def test_sqlite_migration_upgrade_preserves_old_rows(tmp_path, monkeypatch):
     command.upgrade(config, 'head')
     with engine.connect() as conn:
         assert conn.scalar(text('SELECT name FROM projects')) == 'Existing'
-        assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0003'
-        assert {'git_tags','release_sources','release_plans','release_items','deployments'} <= set(inspect(conn).get_table_names())
+        assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0004'
+        tables = set(inspect(conn).get_table_names())
+        assert {'git_tags','release_sources','release_plans','release_items','deployments','app_settings'} <= tables
+        assert 'project_members' not in tables
     command.downgrade(config, '0002')
     command.upgrade(config, 'head')
     engine.dispose()

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.cli import main as cli_main
 from app.config import Settings
-from app.models import Project, ProjectMember, User
+from app.models import Project, ProjectRepository, User
 
 
 def csrf_from(response):
@@ -27,7 +27,7 @@ def login(client):
     )
 
 
-def test_anonymous_dashboard_is_public_and_admin_requires_login(client):
+def test_anonymous_dashboard_is_public_and_admin_requires_login(client, user):
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 200
     assert "匿名访问" in response.text
@@ -79,28 +79,21 @@ def test_unicode_csrf_is_rejected_without_server_error(client, user):
     assert client.post("/logout", data={"csrf_token": "🌸"}).status_code == 403
 
 
-def test_membership_is_not_required_for_public_projects(app, client, user):
+def test_projects_are_public_to_members_and_anonymous_visitors(app, client, user):
     with Session(app.state.engine) as session:
-        project = Project(name="Private", slug="private")
+        project = Project(name="Public", slug="public")
         session.add(project)
-        session.flush()
-        session.add(ProjectMember(project_id=project.id, user_id=user.id))
         session.commit()
         project_id = project.id
 
     assert login(client).status_code == 303
-    assert client.get(f"/projects/{project_id}").status_code == 200
-    with Session(app.state.engine) as session:
-        membership = session.query(ProjectMember).filter_by(project_id=project_id, user_id=user.id).one()
-        session.delete(membership)
-        session.commit()
     assert client.get(f"/projects/{project_id}").status_code == 200
     client.cookies.clear()
     assert client.get(f"/projects/{project_id}").status_code == 200
 
 
 @pytest.mark.parametrize("cookie", ["invalid", "", "eyJ1c2VyX2lkIjoxLCJjc3JmIjoiY3NyZiJ9.fake.signature"])
-def test_bad_session_is_anonymous_for_reads_and_cannot_grant_admin(client, cookie):
+def test_bad_session_is_anonymous_for_reads_and_cannot_grant_admin(client, user, cookie):
     client.cookies.set("gev_session", cookie)
     assert "匿名访问" in client.get("/").text
     assert client.get("/admin", follow_redirects=False).status_code == 303
@@ -159,9 +152,9 @@ def test_platform_token_encryption_does_not_store_plaintext(app):
     assert settings.decrypt_token(ciphertext) == token
 
 
-def test_sqlite_rejects_orphan_project_membership(app):
+def test_sqlite_rejects_orphan_project_repository(app):
     with Session(app.state.engine) as session:
-        session.add(ProjectMember(project_id=987654, user_id=987654))
+        session.add(ProjectRepository(project_id=987654, repository_id=987654))
         with pytest.raises(IntegrityError):
             session.commit()
 
