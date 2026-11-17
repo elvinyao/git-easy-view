@@ -2,7 +2,7 @@
 
 [ドキュメント一覧](../README.md) · [简体中文](../zh-CN/docker-deployment.md) · [English](../en/docker-deployment.md)
 
-独立したデプロイには [deploy/ デプロイガイド](../../deploy/README.ja.md)を使用してください。入口は `bash deploy/deploy.sh`、初期設定は `--init`、運用は `bash deploy/deploy.sh compose ...` です。HTTP/HTTPS プロキシ、社内 CA、個人 PC の直接接続に対応し、`.agent/run.sh` を経由しません。本ページは開発 runner でのデプロイ、DB 移行、運用手順を説明します。
+デプロイ、起動・停止、日常運用はすべてリポジトリルートの `./gev` で行います（全コマンドは `./gev help`）。HTTP/HTTPS プロキシ、社内 CA、LAN からの直接アクセスが必要な場合は[プロキシと社内 CA ガイド](../../deploy/README.ja.md)を参照してください。
 
 ## リリース管理への更新
 
@@ -10,21 +10,21 @@
 
 ## 1. 必要環境と単一コンテナ構成
 
-Docker Engine 20.10 以降（または対応する Docker Desktop）を起動し、BuildKit を有効にして、リポジトリのルートから実行します。ホストではソースの参照・編集だけを行い、実行には `bash .agent/run.sh ...` を使います。
+Docker Engine 20.10 以降（または対応する Docker Desktop）を起動し、BuildKit を有効にして、リポジトリのルートから実行します。ホストではソースの参照・編集だけを行います。デプロイと運用には `./gev`、開発中の任意のコマンドには `bash .agent/run.sh ...` を使います。
 
 デプロイは `docker compose` と旧 `docker-compose`（最低 1.29.2）に対応します。既定では `docker:28-cli` ツールコンテナ内で Compose を実行し、ホスト側の Compose のインストールや更新は不要です。プラグインを優先し、なければ `docker-compose` を使います。旧版では互換設定と正常性のポーリングを自動的に使用します。社内ツールイメージが必要な場合、`docker`、`sh`、`awk`、`date` と上記 Compose を含むイメージを `GEV_DOCKER_CLI_IMAGE` に指定し、以後も同じ設定を使ってください。
 
 ```bash
-GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash .agent/run.sh deploy
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 ./gev up
 ```
 
-独立した入口 `bash deploy/deploy.sh` も同じ設定に対応します。詳細は[社内デプロイガイド](../../deploy/README.ja.md)を参照してください。個人 PC では既定のイメージを使えます。
+個人 PC では既定のイメージを使えます。プロキシと社内 CA の設定は[プロキシと社内 CA ガイド](../../deploy/README.ja.md)を参照してください。
 
-v1 での更新には `bash .agent/run.sh deploy` を使ってください。スクリプトは DB マイグレーション成功後に web コンテナを置き換え、SQLite と Git キャッシュの名前付きボリュームを保持します。旧 `docker-compose up` を直接呼ぶと、新しい Docker Engine では廃止された `ContainerConfig` フィールドが原因で失敗することがあります。
+v1 での更新には `./gev up` を使ってください。スクリプトは DB マイグレーション成功後に web コンテナを置き換え、SQLite と Git キャッシュの名前付きボリュームを保持します。旧 `docker-compose up` を直接呼ぶと、新しい Docker Engine では廃止された `ContainerConfig` フィールドが原因で失敗することがあります。
 
 常駐するのは **web コンテナ 1 個**です。Web、定期実行、バックグラウンドジョブ処理を含みます。SQLite にプロジェクト、ユーザー、ブランチ、ジョブを保存するため PostgreSQL と Redis は不要です。ジョブは順次実行し、その間も既存スナップショットを閲覧できます。子プロセスが終了するとコンテナを再起動し、未完了ジョブを DB から復旧します。
 
-永続ボリュームは SQLite の `app-data:/data/db` と Git の `git-cache:/data/git` の 2 個です。ボリュームはコンテナではありません。デプロイ時の一時ツール・マイグレーションコンテナは終了後に削除します。旧サービスは移行・互換テスト用の `legacy` profile のみです。
+永続ボリュームは SQLite の `app-data:/data/db` と Git の `git-cache:/data/git` の 2 個です。ボリュームはコンテナではありません。デプロイ時の一時ツール・マイグレーションコンテナは終了後に削除します。
 
 SQLite は WAL と 30 秒のロック待機を使用します。単一ホストで十数個のリポジトリを見る用途に適しています。DB をネットワークファイルシステムに置いたり、web のレプリカを増やしたりしないでください。
 
@@ -33,38 +33,31 @@ SQLite は WAL と 30 秒のロック待機を使用します。単一ホスト�
 初回とソース更新後は最初のコマンドを使います。2 番目は既存イメージを再利用し、3 番目は Python のベースイメージも更新します。
 
 ```bash
-bash .agent/run.sh deploy
-bash .agent/run.sh deploy --no-build
-bash .agent/run.sh deploy --pull
-bash .agent/run.sh deploy --help
+./gev up
+./gev up --no-build
+./gev up --pull
+./gev up --help
 ```
 
-既定 URL は [http://127.0.0.1:8766](http://127.0.0.1:8766) です。`runtime/local.env`（0600）を生成または保持し、ビルド、書き込みプロセス停止、マイグレーション、web 起動、正常性確認を行います。失敗時は非ゼロ終了で、設定とボリュームを保持します。アカウントとサンプルは自動作成しません。
+既定 URL は [http://127.0.0.1:8766](http://127.0.0.1:8766) です。`runtime/local.env`（0600）を生成または保持し、ビルド、書き込みプロセス停止、マイグレーション、web 起動、正常性確認を行います。失敗時は非ゼロ終了で、設定とボリュームを保持します。デプロイではアカウントとサンプルを作成しません。最初にページを開いたとき、ブラウザーで管理者を作成します。
 
-既存 PostgreSQL 環境からの初回移行：
-
-```bash
-bash .agent/run.sh deploy --migrate-sqlite
-```
-
-旧書き込みプロセスを停止して各テーブルをコピーし、全フィールド、外部キー、整合性を検証します。成功後に DB URL を変更し、PostgreSQL、Redis、旧 worker を停止します。ユーザー、ID、暗号化 token、セッションキー、Git キャッシュは保持します。旧 env は `runtime/local.env.postgres-backup` に保存し、元の DB ボリュームは削除しません。SQLite が既に存在する場合は上書きを拒否します。本番は `--production` を追加してください。
-
-以後は通常の `deploy` だけです。旧 DB URL だけを SQLite に書き換えると空の DB を参照するため、この移行を使ってください。失敗時はログと保持ファイルを確認し、元のボリュームを削除しないでください。移行後の旧 DB へのロールバックには SQLite 側の新しい変更は含まれません。
+現在のバージョンは SQLite のみに対応します。PostgreSQL を使っている旧環境は、この機能を削除する前のバージョンで `--migrate-sqlite` を実行して SQLite に移行してから、現在のバージョンへ更新してください。
 
 ## 3. 管理者と任意のサンプルデータ
 
-空の環境には正式な管理者を一度だけ作成します。パスワードは対話入力で、表示されません。
+新しい環境で最初にページを開くと「初期設定」に進みます。ユーザー名とパスワードを入力すると最初の管理者が作成され、続いて管理画面がリポジトリソースの追加、プロジェクト作成、リポジトリのインポートを 3 ステップで案内します。本番環境（`-p`）ではセットアップコードの入力も必要です。これは操作者がサーバー権限を持つことの確認で、下の 1 行目のコマンドで表示します。アカウントが存在すると、初期設定ページは恒久的に閉じます。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username your-admin --admin
+./gev -p setup-code
+./gev create-admin your-admin
 ```
 
-長いランダムパスワードを使ってください。Web のアカウント管理では 12–1024 文字を要求します。本番は env パスを `runtime/production.env` に変更します。同名ユーザーがあればエラーとなり、パスワードを変更しません。再デプロイでユーザーを作り直す必要はありません。
+ブラウザーを使わず、2 行目のコマンドで端末から管理者を作成することもできます（パスワードは対話入力で表示されません）。本番環境では `./gev -p create-admin your-admin` を使います。長いランダムなパスワードを使用してください。Web のアカウント管理フォームは 12–1024 文字を要求します。同名アカウントが存在する場合はエラーとなり、パスワードは再設定されません。
 
 無人で初回作成する場合は、secret 管理システムで `runtime/admin-bootstrap.env`（0600、`GEV_ADMIN_PASSWORD=...`）を配置し、単発コンテナへ渡します。以下の `--env-from-file` の例は既定の新しい CLI イメージ用です。旧版 Compose のカスタムイメージでは、上記の対話入力を使ってください。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T --env-from-file /workspace/runtime/admin-bootstrap.env tools python -m app.cli create-user --username your-admin --admin --password-env GEV_ADMIN_PASSWORD
+./gev -p compose run --rm --no-deps -T --env-from-file /workspace/runtime/admin-bootstrap.env tools python -m app.cli create-user --username your-admin --admin --password-env GEV_ADMIN_PASSWORD
 ```
 
 パスワードは引数や常駐 Web 環境には入りませんが、コンテナ管理者は単発コンテナの環境を読めます。完了後は secret 管理手順に従ってファイルを除去し、内容をログに出さないでください。[Compose run の公式オプション](https://docs.docker.com/reference/cli/docker/compose/run/)。
@@ -72,7 +65,7 @@ bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps 
 UI を試す場合、**空の非本番 local DB のみ**で実行します。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools python .agent/seed-local.py
+./gev seed
 ```
 
 アクセス情報は `runtime/demo-access.json`（0600）に保存します。3 リポジトリ、各 55 ブランチ、3 つの実際の空ツリーコミット、架空と明示した PR を作成します。サンプル接続は停止状態です。架空 URL の接続確認はしないでください。既存ユーザー／データがある DB は上書きしません。中断後は別の空環境を使用し、利用中の DB を reset しないでください。
@@ -80,7 +73,7 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools
 ## 4. 本番、HTTPS、リモート自動化
 
 ```bash
-bash .agent/run.sh deploy --production --wait-timeout 300
+./gev -p up --wait-timeout 300
 ```
 
 初回に独立したランダム値で `runtime/production.env` を生成します。プロジェクト名は `git-easy-view-production`、イメージは `git-easy-view:git-easy-view-production`、ポートは 8767、`GEV_PRODUCTION=true`、`GEV_COOKIE_SECURE=true` です。local ファイルは保持します。別のプロジェクト名で永続ボリュームを分離します。**env を変えるだけでは分離できません。** [Compose プロジェクト名の説明](https://docs.docker.com/compose/how-tos/project-name/)。
@@ -108,13 +101,13 @@ server {
 独立した staging の初回例：
 
 ```bash
-bash .agent/run.sh deploy --production --env-file runtime/staging.env --project-name gev-staging --port 8771 --wait-timeout 300
+./gev -p -e runtime/staging.env up --project-name gev-staging --port 8771 --wait-timeout 300
 ```
 
 サーバーに Docker、ソース、永続 env、HTTPS プロキシがある場合、現在の checkout をリモート公開できます。
 
 ```bash
-bash .agent/run.sh ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -i runtime/deploy-key -o UserKnownHostsFile=runtime/deploy-known-hosts deploy@server.example 'cd /srv/git-easy-view && bash .agent/run.sh deploy --production --wait-timeout 300'
+bash .agent/run.sh ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -i runtime/deploy-key -o UserKnownHostsFile=runtime/deploy-known-hosts deploy@server.example 'cd /srv/git-easy-view && ./gev -p up --wait-timeout 300'
 ```
 
 ソースは信頼できる CI のリリースパッケージで配置するか、**クリーンな専用 deployment checkout** で更新します。`origin/main` は例なので承認済み ref に変更してください。Git 書き込みも Docker 内です。
@@ -122,7 +115,7 @@ bash .agent/run.sh ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -i runti
 ```bash
 bash .agent/run.sh git -c safe.directory=/workspace fetch origin
 bash .agent/run.sh git -c safe.directory=/workspace merge --ff-only origin/main
-bash .agent/run.sh deploy --production --wait-timeout 300
+./gev -p up --wait-timeout 300
 ```
 
 SSH クライアントも runner コンテナで実行します。制御側の secret 管理手順で `runtime/deploy-key`（0600）と検証済みの `runtime/deploy-known-hosts` を用意してください。ホストの `.ssh` や SSH agent は自動マウントしません。アカウント、ホスト、パスを変更すれば CI で利用できます。
@@ -148,7 +141,6 @@ token は Fernet で暗号化して DB に保存します。`GEV_CREDENTIAL_KEY`
 | フィールド | 既定値 / 用途 |
 |---|---|
 | `GEV_DATABASE_URL` | `sqlite:////data/db/gev.sqlite3`、永続 DB |
-| `GEV_JOB_BACKEND` | `database`、Redis 不要 |
 | `GEV_CACHE_ROOT` | `/data/git` |
 | `GEV_SESSION_SECRET` | 32 文字以上の安定したランダム値 |
 | `GEV_CREDENTIAL_KEY` | DB と一緒に保存する Fernet key |
@@ -162,7 +154,7 @@ token は Fernet で暗号化して DB に保存します。`GEV_CREDENTIAL_KEY`
 | `GEV_HEARTBEAT_INTERVAL_SECONDS` | 15 秒 |
 | `GEV_SESSION_MAX_AGE` | 43200 秒 |
 
-キューは毎秒確認します。リポジトリの同期間隔は既定 300 秒で管理画面から変更します。本番は絶対パスの SQLite を許可しますが、安定したキーと Secure cookie は必須です。PostgreSQL/RQ アダプターは互換用途として残しています。
+キューは毎秒確認します。リポジトリの同期間隔は既定 300 秒で管理画面から変更します。本番は絶対パスの SQLite を許可しますが、安定したキーと Secure cookie は必須です。
 
 ### 6.1 ローカルリポジトリのマウント
 
@@ -172,23 +164,23 @@ token は Fernet で暗号化して DB に保存します。`GEV_CREDENTIAL_KEY`
 GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace
 ```
 
-`bash .agent/run.sh deploy` で反映します。イメージ更新済みでマウントだけを変更する場合は `--no-build` を追加できます。未設定時は空の `runtime/local-repositories/` を使います。通常・独立デプロイとも `/data/local-git` に読み取り専用でマウントし、管理者はこの範囲内を選択します。Docker Desktop のファイル共有を許可し、Linux ではディレクトリの探索と Git ファイルの読み取り権限を用意してください。
+`./gev up` で反映します。イメージ更新済みでマウントだけを変更する場合は `--no-build` を追加できます。未設定時は空の `runtime/local-repositories/` を使います。このディレクトリを `/data/local-git` に読み取り専用でマウントし、管理者はこの範囲内を選択します。Docker Desktop のファイル共有を許可し、Linux ではディレクトリの探索と Git ファイルの読み取り権限を用意してください。
 
 元ディレクトリへのキャッシュ書き込みや remote への fetch/push は行いません。同期はローカル Git オブジェクトを `git-cache` にコピーします。既存の取得元を同名の別リポジトリ群へ切り替えないでください。移行時はディレクトリ構成を維持するか、新しい取得元を作成します。
 
 ## 7. 日常操作と診断
 
-ローカル環境では `runtime/local.env` に変更します。
+ローカル環境では `-p` を外します。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env ps
-bash .agent/run.sh compose --env-file runtime/production.env logs --tail=100 web
-bash .agent/run.sh compose --env-file runtime/production.env exec -T web alembic current
-bash .agent/run.sh compose --env-file runtime/production.env stop web
-bash .agent/run.sh deploy --production --no-build --wait-timeout 300
+./gev -p status
+./gev -p logs --tail=100
+./gev -p compose exec -T web alembic current
+./gev -p stop
+./gev -p up --no-build --wait-timeout 300
 ```
 
-`ps` の実行中サービスは web 1 個です。`ps -a` に表示される移行前の停止コンテナは実行リソースを消費しません。
+`status` の実行中サービスは web 1 個です。`./gev status -a` に表示される移行前の停止コンテナは実行リソースを消費しません。
 
 Docker に接続できない場合は Docker を起動し、ホスト Python へ切り替えないでください。同期が進まない場合は web ログ、接続の停止状態、token/CA を確認します。DB が busy の場合は追加の手動実行プロセスを確認してください。WAL、キャッシュ、ロックは削除しないでください。マイグレーション失敗時は停止状態で修正・復旧後に再デプロイします。ログインループは HTTPS/cookie/セッションキー、復号失敗は対応する Fernet key を確認します。
 
@@ -197,15 +189,15 @@ Docker に接続できない場合は Docker を起動し、ホスト Python へ
 SQLite backup API でオンラインバックアップを行うため、WAL 内のコミット済みデータも含みます。稼働中の DB ファイルを単純コピーしません。毎回新しいディレクトリを指定してください。既存ディレクトリは拒否します。env のキーも保存し、管理された暗号化ストレージへ退避してください。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/pre-deploy --env-file runtime/production.env
+./gev -p backup runtime/backups/pre-deploy
 ```
 
 復元は現在の DB を上書きします。対象を確認して web を停止し、tools や開発プロセスも DB に接続しない状態にしてください。env はバックアップと一致する必要があります。異なる場合は対応する設定を確認・復元してください。
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/production.env stop web
-bash .agent/run.sh compose --env-file runtime/production.env run --rm --no-deps -T tools python .agent/sqlite-backup.py restore runtime/backups/pre-deploy --env-file runtime/production.env
-bash .agent/run.sh deploy --production --no-build
+./gev -p stop
+./gev -p restore runtime/backups/pre-deploy
+./gev -p up --no-build
 ```
 
 Git キャッシュは再取得できます。復旧時間短縮には停止中のボリュームも別途保存できます。旧コードへ戻す際は schema 互換性を確認し、必要なら対応する DB とキーも復元します。`down -v` はデータを削除するため使用しないでください。
@@ -214,6 +206,6 @@ Git キャッシュは再取得できます。復旧時間短縮には停止中�
 
 常駐サービスの正常状態、`/health`、匿名閲覧、管理者の HTTPS ログインを確認します。その後、社内の実 token / CA で接続し、実リポジトリを 1 件インポートして検証してください。
 
-ソース、インストール済みパッケージ、実 PostgreSQL / Redis / RQ、Chromium の確認は[開発ガイド](development.md#7-テストと検証)を参照してください。既定上限はリポジトリあたり 10,000 ブランチ、Git 出力 4 MiB、通常 Git 30 秒、clone / fetch 120 秒、ジョブ最大 5 試行、provider 最大 1000 ページです。ワークスペースは履歴 100 件、ファイル 200 件、ブランチ独自コミット画面は最大 50 件です。
+ソース、インストール済みパッケージ、Chromium の確認は[開発ガイド](development.md#7-テストと検証)を参照してください。既定上限はリポジトリあたり 10,000 ブランチ、Git 出力 4 MiB、通常 Git 30 秒、clone / fetch 120 秒、ジョブ最大 5 試行、provider 最大 1000 ページです。ワークスペースは履歴 100 件、ファイル 200 件、ブランチ独自コミット画面は最大 50 件です。
 
 サンプルと規模試験は 3 コミットだけで、本番大規模リポジトリの容量保証ではありません。社内プラットフォーム、ネットワーク、token、CA、長期運転、プロキシは実環境で確認してください。SSO、webhook、SSH Git、無制限の履歴閲覧は未実装です。

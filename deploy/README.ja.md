@@ -2,21 +2,21 @@
 
 [简体中文](README.md) · [English](README.en.md) · [ドキュメント一覧](../docs/README.md)
 
-このディレクトリには独立した Dockerfile、Compose 設定、デプロイスクリプトがあります。HTTP/HTTPS の外向きプロキシと社内 CA が必要な環境にも、個人 PC の直接接続にも対応します。常駐するアプリケーションコンテナは一つで、SQLite と Git キャッシュは既存の永続ボリュームに保存されます。
+このディレクトリには `./gev up` が使う Dockerfile、Compose 設定、デプロイスクリプトがあります。本ガイドは HTTP/HTTPS の外向きプロキシと社内 CA が必要な環境での設定を説明します。個人 PC の直接接続ではこれらの設定は不要です。常駐するアプリケーションコンテナは一つで、SQLite と Git キャッシュは既存の永続ボリュームに保存されます。
 
 ## 1. Docker のイメージ取得を先に設定する
 
-Docker Engine 20.10 以降（または対応する Docker Desktop）と BuildKit が必要です。リポジトリルートから独立した入口 `bash deploy/deploy.sh` を実行します。ホストでは Docker だけを呼び出し、設定生成、ビルド、マイグレーション、アプリのコマンドはコンテナ内で実行します。ホストの Python / Node や `.agent/run.sh` は不要です。
+Docker Engine 20.10 以降（または対応する Docker Desktop）と BuildKit が必要です。リポジトリルートから `./gev up` を実行します。ホストでは Docker だけを呼び出し、設定生成、ビルド、マイグレーション、アプリのコマンドはコンテナ内で実行します。ホストの Python / Node は不要です。
 
 **新しい `docker compose` と旧 `docker-compose`（最低 1.29.2）に対応します。** 既定では `docker:28-cli` ツールコンテナを使うため、ホスト側の Compose の有無やバージョンはデプロイに影響しません。ツールコンテナの Compose プラグインを優先し、なければ `docker-compose` を使います。旧版では互換設定と正常性のポーリングを自動的に使用し、BuildKit secret、プロキシ値、CA 設定を保持します。常駐コンテナは増えません。
 
-v1 で更新する場合、デプロイスクリプトは DB マイグレーション成功後に web コンテナを置き換え、SQLite と Git キャッシュの名前付きボリュームを保持します。更新には `bash deploy/deploy.sh` を使ってください。旧 `docker-compose up` を直接呼ぶと、新しい Docker Engine では廃止された `ContainerConfig` フィールドが原因で失敗することがあります。
+v1 で更新する場合、デプロイスクリプトは DB マイグレーション成功後に web コンテナを置き換え、SQLite と Git キャッシュの名前付きボリュームを保持します。更新には `./gev up` を使ってください。旧 `docker-compose up` を直接呼ぶと、新しい Docker Engine では廃止された `ContainerConfig` フィールドが原因で失敗することがあります。
 
 社内ツールイメージを使う場合は `GEV_DOCKER_CLI_IMAGE` を指定できます。イメージには `docker`、`sh`、`awk`、`date` と、上記いずれかの Compose が必要です。例のアドレスを実際のイメージに置き換え、以後のデプロイ・運用でも同じ設定を使ってください。個人 PC では設定不要です。
 
 ```bash
-GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash deploy/deploy.sh
-GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash deploy/deploy.sh compose --env-file runtime/local.env ps
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 ./gev up
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 ./gev status
 ```
 
 プロキシには二つの設定箇所があります。
@@ -45,7 +45,7 @@ Linux Docker Engine：管理者が以下の項目を `/etc/docker/daemon.json` �
 ## 2. 初回の設定準備
 
 ```bash
-bash deploy/deploy.sh --init
+./gev up --init
 ```
 
 このコマンドはファイルの準備だけを行います。ビルド、起動、ユーザー作成は行いません。既存のアプリ設定と秘密鍵は保持します。
@@ -81,29 +81,29 @@ PIP_EXTRA_INDEX_URL=
 ## 3. デプロイ、更新、個人 PC との互換性
 
 ```bash
-bash deploy/deploy.sh
-bash deploy/deploy.sh --no-build
-bash deploy/deploy.sh --pull --wait-timeout 300
-bash deploy/deploy.sh --help
+./gev up
+./gev up --no-build
+./gev up --pull --wait-timeout 300
+./gev up --help
 ```
 
 初回とソース更新は一つ目、既存の社内用イメージの再利用は二つ目、ベースイメージも更新する場合は三つ目を使います。設定確認、ビルド、web 停止、DB マイグレーション、起動、ヘルスチェックを順に実行します。失敗時は非ゼロで終了し、設定とデータを保持します。既定の URL は [http://127.0.0.1:8766](http://127.0.0.1:8766) です。
 
 同じ `COMPOSE_PROJECT_NAME` なら既存の `app-data` と `git-cache` を使い、SQLite をコピーしたり空にしたりしません。方式を切り替える前にバックアップし、同じプロジェクトに二つのデプロイ処理を同時実行しないでください。
 
-個人 PC でも同じ `bash deploy/deploy.sh` を使い、プロキシと CA ディレクトリは空のままで構いません。専用の `-intranet` イメージタグを使います。初回はビルドが必要で、以後 `--no-build` を使えます。この入口は SQLite の単一コンテナ構成に対応します。旧 PostgreSQL 環境は[データベース移行ガイド](../docs/ja/docker-deployment.md)の `--migrate-sqlite` で先に移行し、DB URL だけを変更しないでください。
+個人 PC でも同じ `./gev up` を使い、プロキシと CA ディレクトリは空のままで構いません。専用の `-intranet` イメージタグを使います。初回はビルドが必要で、以後 `--no-build` を使えます。現在のバージョンは SQLite の単一コンテナ構成のみに対応します。旧 PostgreSQL 環境の更新方法は[デプロイガイド](../docs/ja/docker-deployment.md)を参照してください。
 
 ### 3.1 サーバー上のローカル Git リポジトリを使う
 
-`runtime/local.env`（本番は `runtime/production.env`）に既存ディレクトリを設定します。例：`GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace`。その後 `bash deploy/deploy.sh` を再実行してください。イメージ更新済みでマウントだけの変更なら `--no-build` を利用できます。新版・旧版 Compose とも `/data/local-git` に読み取り専用でマウントします。未設定時は空の `runtime/local-repositories/` を使い、常駐コンテナは増えません。
+`runtime/local.env`（本番は `runtime/production.env`）に既存ディレクトリを設定します。例：`GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace`。その後 `./gev up` を再実行してください。イメージ更新済みでマウントだけの変更なら `--no-build` を利用できます。新版・旧版 Compose とも `/data/local-git` に読み取り専用でマウントします。未設定時は空の `runtime/local-repositories/` を使い、常駐コンテナは増えません。
 
 管理者は取得元で「ローカル Git ディレクトリ」を選び、子ディレクトリの選択・検索・一括登録を行います。token やリモート接続は不要です。Docker に読み取り権限を与え、登録後はマウントを維持してください。[ローカル登録の手順](../docs/ja/user-guide.md#71-ローカル-git-リポジトリの一括登録)も参照してください。
 
 ## 4. 社内本番サービスと独立インスタンス
 
 ```bash
-bash deploy/deploy.sh --production --init
-bash deploy/deploy.sh --production --wait-timeout 300
+./gev -p up --init
+./gev -p up --wait-timeout 300
 ```
 
 二つのコマンドの間で `runtime/production.network.env` と CA を用意します。本番は独立した `runtime/production.env`、Compose プロジェクト、ボリュームを使い、既定のバックエンドポートは 8767 です。Secure ログイン cookie のため、ブラウザーからは HTTPS リバースプロキシ経由でアクセスします。外向きの `HTTPS_PROXY` はブラウザー用 HTTPS の代わりにはなりません。
@@ -111,19 +111,19 @@ bash deploy/deploy.sh --production --wait-timeout 300
 既定では `127.0.0.1` のみで待ち受け、同一ホストのリバースプロキシを想定します。別ホストのリバースプロキシから接続する場合はサーバーの社内 IP、または以下の全インターフェースを明示し、ファイアウォールで接続元を限定します。
 
 ```bash
-bash deploy/deploy.sh --production --bind-address 0.0.0.0 --no-build
+./gev -p up --bind-address 0.0.0.0 --no-build
 ```
 
-プロジェクトページは匿名閲覧可能です。公開するアドレスに接続できる利用者はプロジェクトを閲覧できます。本番の管理者ログインには引き続き HTTPS を使います。
+プロジェクトページは既定で匿名閲覧可能です。公開するアドレスに接続できる利用者はプロジェクトを閲覧できます。制限する場合は、管理者が管理画面の「アクセス制御」で「閲覧にログインを必須にする」をオンにします。本番の管理者ログインには引き続き HTTPS を使います。
 
 独立した検証環境では、設定、ネットワーク、CA、プロジェクト名、ポートを分けられます。
 
 ```bash
-bash deploy/deploy.sh --env-file runtime/intranet-test.env --project-name gev-intranet-test --port 8772 --network-file runtime/intranet-test.network.env --ca-dir runtime/company-ca --init
-bash deploy/deploy.sh --env-file runtime/intranet-test.env
+./gev -e runtime/intranet-test.env up --project-name gev-intranet-test --port 8772 --network-file runtime/intranet-test.network.env --ca-dir runtime/company-ca --init
+./gev -e runtime/intranet-test.env up
 ```
 
-カスタムのファイルとディレクトリは `runtime/` 内に置きます。ネットワークパス、CA パス、バインドアドレスは対応する `.deploy.env` に保存され、再指定は不要です。既存 env のポートとプロジェクト名をコマンドで黙って変更することはありません。新規インスタンスは新しい env とプロジェクト名で作成します。本番環境は以後も `--production` を付けます。
+カスタムのファイルとディレクトリは `runtime/` 内に置きます。ネットワークパス、CA パス、バインドアドレスは対応する `.deploy.env` に保存され、再指定は不要です。既存 env のポートとプロジェクト名をコマンドで黙って変更することはありません。新規インスタンスは新しい env とプロジェクト名で作成します。本番環境は以後の操作にも `-p` を付けます。
 
 ## 5. プロキシと CA の適用方法
 
@@ -133,20 +133,20 @@ bash deploy/deploy.sh --env-file runtime/intranet-test.env
 
 管理画面の接続 CA パスは通常空欄にし、既定の信頼を使えます。接続専用の CA パスを指定すると、その接続の Git / API の信頼を上書きするため、必要な CA チェーンを含めます。統合された信頼を明示するには `/tmp/gev-ca-bundle.pem` を指定できます。
 
-資格情報はイメージに入りませんが、Docker 管理権限がある利用者は実行中コンテナの環境を参照できます。社内の資格情報管理方針に従い、ホストと `runtime/` を保護します。プロキシや CA を変更したら再度 `bash deploy/deploy.sh` を実行します。実行時設定だけの更新で既存イメージがある場合は `--no-build` が使えます。
+資格情報はイメージに入りませんが、Docker 管理権限がある利用者は実行中コンテナの環境を参照できます。社内の資格情報管理方針に従い、ホストと `runtime/` を保護します。プロキシや CA を変更したら再度 `./gev up` を実行します。実行時設定だけの更新で既存イメージがある場合は `--no-build` が使えます。
 
 ## 6. 管理、バックアップ、トラブルシューティング
 
-運用も同じスクリプトの `compose` サブコマンドを使います。専用 Compose ファイルと保存済みのデプロイ設定を自動的に読み込みます。
+日常の運用も同じ `./gev` を使います。保存済みのデプロイ設定を自動的に読み込みます。
 
 ```bash
-bash deploy/deploy.sh compose --env-file runtime/local.env ps
-bash deploy/deploy.sh compose --env-file runtime/local.env logs --tail=100 web
-bash deploy/deploy.sh compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username your-admin --admin
-bash deploy/deploy.sh compose --env-file runtime/local.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/intranet-before-update --env-file runtime/local.env
+./gev status
+./gev logs --tail=100
+./gev create-admin your-admin
+./gev backup runtime/backups/intranet-before-update
 ```
 
-管理者パスワードは対話入力します。本番では env パスを `runtime/production.env` に変更します。バックアップには毎回新しいディレクトリを指定します。DB と対応するアプリの秘密値に加え、ネットワーク設定、デプロイ設定、CA も安全に保管してください。復元は[運用ガイド](../docs/ja/docker-deployment.md)を参照し、Compose コマンドの先頭を `bash deploy/deploy.sh compose`、再起動を `bash deploy/deploy.sh --no-build` に置き換えます。`down -v` は実行しないでください。
+新しい環境では、最初にページを開いたときにブラウザーで管理者を作成します。上の `create-admin` は端末から作成する方法で、パスワードは対話入力します。本番ではコマンドに `-p` を付けます。バックアップには毎回新しいディレクトリを指定します。DB と対応するアプリの秘密値に加え、ネットワーク設定、デプロイ設定、CA も安全に保管してください。復元は[運用ガイド](../docs/ja/docker-deployment.md)を参照し、その他の Compose 操作は `./gev compose ...`、再起動は `./gev up --no-build` を使います。`down -v` は実行しないでください。
 
 | 症状 | 確認箇所 |
 |---|---|

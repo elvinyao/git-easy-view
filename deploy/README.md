@@ -2,21 +2,21 @@
 
 [日本語](README.ja.md) · [English](README.en.md) · [完整文档](../docs/README.md)
 
-本目录提供独立的 Dockerfile、Compose 配置和部署脚本，适用于需要 HTTP/HTTPS 出站代理和公司 CA 的内网，也支持个人电脑直连网络。部署后仍只有一个常驻应用容器，SQLite 与 Git 缓存保存在原有持久卷中。
+本目录是 `./gev up` 使用的 Dockerfile、Compose 配置和部署脚本。本指南说明需要 HTTP/HTTPS 出站代理和公司 CA 的内网，时的配置；个人电脑直连网络时无需这些配置。部署后仍只有一个常驻应用容器，SQLite 与 Git 缓存保存在原有持久卷中。
 
 ## 1. 先让 Docker 能拉取镜像
 
-需要 Docker Engine 20.10+（或对应的 Docker Desktop）和 BuildKit。从仓库根目录运行独立入口 `bash deploy/deploy.sh`；它在宿主只调用 Docker，配置生成、构建、迁移和应用命令均在容器内执行，无需宿主 Python 或 Node，也不依赖 `.agent/run.sh`。
+需要 Docker Engine 20.10+（或对应的 Docker Desktop）和 BuildKit。从仓库根目录运行 `./gev up`；它在宿主只调用 Docker，配置生成、构建、迁移和应用命令均在容器内执行，无需宿主 Python 或 Node。
 
 **兼容新版 `docker compose` 和旧版 `docker-compose`（最低 1.29.2）。** 默认使用 `docker:28-cli` 工具容器，宿主是否安装 Compose、安装什么版本都不影响部署。脚本优先选择工具容器里的 Compose 插件，没有插件时使用 `docker-compose`。旧版自动使用兼容配置与健康状态轮询，仍保留 BuildKit secret、代理值和 CA 配置，不增加常驻容器。
 
-使用 v1 更新时，部署脚本在数据库迁移成功后替换 web 容器，保留 SQLite 和 Git 缓存的命名卷。请通过 `bash deploy/deploy.sh` 更新；直接调用旧版 `docker-compose up` 在新 Docker Engine 上可能因已废弃的 `ContainerConfig` 字段而失败。
+使用 v1 更新时，部署脚本在数据库迁移成功后替换 web 容器，保留 SQLite 和 Git 缓存的命名卷。请通过 `./gev up` 更新；直接调用旧版 `docker-compose up` 在新 Docker Engine 上可能因已废弃的 `ContainerConfig` 字段而失败。
 
 内网已有工具镜像时，可指定 `GEV_DOCKER_CLI_IMAGE`；镜像必须包含 `docker`、`sh`、`awk`、`date`，以及上述任一 Compose 实现。将示例地址换成实际镜像，并在后续部署和运维命令中使用同一设置；个人电脑无需设置：
 
 ```bash
-GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash deploy/deploy.sh
-GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 bash deploy/deploy.sh compose --env-file runtime/local.env ps
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 ./gev up
+GEV_DOCKER_CLI_IMAGE=registry.example.com/tools/docker-cli-compose:1.29.2 ./gev status
 ```
 
 代理需要分两层配置：
@@ -45,7 +45,7 @@ Linux Docker Engine：由管理员将下面的代理字段合并到 `/etc/docker
 ## 2. 首次准备配置
 
 ```bash
-bash deploy/deploy.sh --init
+./gev up --init
 ```
 
 该命令只准备文件，不构建或启动应用，也不创建数据库账号。已有应用配置和密钥会保留。
@@ -81,29 +81,29 @@ PIP_EXTRA_INDEX_URL=
 ## 3. 部署、更新和个人电脑兼容
 
 ```bash
-bash deploy/deploy.sh
-bash deploy/deploy.sh --no-build
-bash deploy/deploy.sh --pull --wait-timeout 300
-bash deploy/deploy.sh --help
+./gev up
+./gev up --no-build
+./gev up --pull --wait-timeout 300
+./gev up --help
 ```
 
 首次部署和源码更新用第一条；第二条复用已有内网镜像；第三条同时刷新构建基础镜像。脚本验证配置、构建、停止 web、迁移数据库、重新启动并等待健康检查。失败返回非零，保留配置和数据卷。默认访问 [http://127.0.0.1:8766](http://127.0.0.1:8766)。
 
 同一个 `COMPOSE_PROJECT_NAME` 使用原有 `app-data` 和 `git-cache` 卷，不复制或清空 SQLite。切换部署方式前备份现有实例；不要用两个部署流程并发操作同一项目。
 
-个人电脑也使用同一个 `bash deploy/deploy.sh`，将代理留空、CA 目录留空即可。脚本使用独立的 `-intranet` 镜像标签；第一次使用必须构建，之后才能用 `--no-build`。此入口支持当前 SQLite 单容器模式；旧 PostgreSQL 实例先按[数据库迁移指南](../docs/zh-CN/docker-deployment.md)完成 `--migrate-sqlite`，不要直接改数据库 URL。
+个人电脑也使用同一个 `./gev up`，将代理留空、CA 目录留空即可。脚本使用独立的 `-intranet` 镜像标签；第一次使用必须构建，之后才能用 `--no-build`。当前版本只支持 SQLite 单容器模式；旧 PostgreSQL 实例的升级方法见[部署指南](../docs/zh-CN/docker-deployment.md)。
 
 ### 3.1 使用服务器上的本地 Git 仓库
 
-在 `runtime/local.env`（生产为 `runtime/production.env`）设置已有目录，例如 `GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace`，然后重新运行 `bash deploy/deploy.sh`。镜像已更新、只改映射时可加 `--no-build`。新版 Compose 与旧版兼容配置都会将目录只读映射到 `/data/local-git`，未设置时使用空的 `runtime/local-repositories/`，不增加常驻容器。
+在 `runtime/local.env`（生产为 `runtime/production.env`）设置已有目录，例如 `GEV_LOCAL_GIT_DIRECTORY=/Users/elvinyao/workspace`，然后重新运行 `./gev up`。镜像已更新、只改映射时可加 `--no-build`。新版 Compose 与旧版兼容配置都会将目录只读映射到 `/data/local-git`，未设置时使用空的 `runtime/local-repositories/`，不增加常驻容器。
 
 管理员在添加来源页选择“本地 Git 目录”，浏览子目录、扫描并批量导入。无需 token 或远程连接。目录必须可被 Docker 读取，导入后保持映射稳定。详见[本地导入说明](../docs/zh-CN/user-guide.md#71-批量添加本地-git-仓库)。
 
 ## 4. 正式内网服务与独立实例
 
 ```bash
-bash deploy/deploy.sh --production --init
-bash deploy/deploy.sh --production --wait-timeout 300
+./gev -p up --init
+./gev -p up --wait-timeout 300
 ```
 
 在两条命令之间编辑 `runtime/production.network.env` 并安装 CA。生产默认使用独立的 `runtime/production.env`、Compose 项目和数据卷，后端端口为 8767。正式环境必须通过 HTTPS 反向代理访问，才能正常使用 Secure 登录 cookie；出站 `HTTPS_PROXY` 不会替用户浏览器提供 HTTPS。
@@ -111,19 +111,19 @@ bash deploy/deploy.sh --production --wait-timeout 300
 默认仅监听 `127.0.0.1`，适合宿主上的反向代理。需要让其他主机的反向代理访问后端时，明确指定服务器的内网 IP，或以下所有接口地址，并由防火墙限制访问来源：
 
 ```bash
-bash deploy/deploy.sh --production --bind-address 0.0.0.0 --no-build
+./gev -p up --bind-address 0.0.0.0 --no-build
 ```
 
-项目页面支持匿名读取；开放监听地址后，能连到该端口的人可以浏览项目。生产管理员仍应通过 HTTPS 登录。
+项目页面默认支持匿名读取；开放监听地址后，能连到该端口的人可以浏览项目。需要限制时，管理员可在管理页的「访问控制」中开启“登录后才能查看”。生产管理员仍应通过 HTTPS 登录。
 
 独立测试实例可同时指定应用配置、网络配置、CA 目录、项目名和端口：
 
 ```bash
-bash deploy/deploy.sh --env-file runtime/intranet-test.env --project-name gev-intranet-test --port 8772 --network-file runtime/intranet-test.network.env --ca-dir runtime/company-ca --init
-bash deploy/deploy.sh --env-file runtime/intranet-test.env
+./gev -e runtime/intranet-test.env up --project-name gev-intranet-test --port 8772 --network-file runtime/intranet-test.network.env --ca-dir runtime/company-ca --init
+./gev -e runtime/intranet-test.env up
 ```
 
-自定义文件和目录应位于 `runtime/` 内。网络路径、CA 路径和监听地址会保存在对应的 `.deploy.env`，后续无需重复输入。已有 env 的端口和项目名不会被命令行静默改写；需要新实例时选择新的 env 和项目名。`--production` 部署在后续操作中也要继续带上 `--production`。
+自定义文件和目录应位于 `runtime/` 内。网络路径、CA 路径和监听地址会保存在对应的 `.deploy.env`，后续无需重复输入。已有 env 的端口和项目名不会被命令行静默改写；需要新实例时选择新的 env 和项目名。生产实例的后续操作也要继续带上 `-p`。
 
 ## 5. 代理和 CA 如何进入容器
 
@@ -133,20 +133,20 @@ bash deploy/deploy.sh --env-file runtime/intranet-test.env
 
 通常可以将管理界面中的连接 CA 路径留空，使用这套默认信任。若填写连接专属 CA 路径，它会覆盖该连接的 Git / API 信任，因此应包含连接所需的完整 CA 链；也可以填写 `/tmp/gev-ca-bundle.pem` 使用合并后的信任。
 
-代理凭据虽然不写进镜像，仍可被拥有 Docker 管理权限的人读取运行容器的环境。按公司凭据管理规范保护主机与 `runtime/`。更换网络配置或 CA 后重新运行 `bash deploy/deploy.sh`；只更新运行时配置且已有镜像时可用 `--no-build`。
+代理凭据虽然不写进镜像，仍可被拥有 Docker 管理权限的人读取运行容器的环境。按公司凭据管理规范保护主机与 `runtime/`。更换网络配置或 CA 后重新运行 `./gev up`；只更新运行时配置且已有镜像时可用 `--no-build`。
 
 ## 6. 管理、备份与排错
 
-日常操作使用同一脚本的 `compose` 子命令，自动选择独立 Compose 文件并读取该实例保存的部署配置：
+日常操作使用同一个 `./gev`，它会读取该实例保存的部署配置：
 
 ```bash
-bash deploy/deploy.sh compose --env-file runtime/local.env ps
-bash deploy/deploy.sh compose --env-file runtime/local.env logs --tail=100 web
-bash deploy/deploy.sh compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username your-admin --admin
-bash deploy/deploy.sh compose --env-file runtime/local.env run --rm --no-deps -T tools python .agent/sqlite-backup.py backup runtime/backups/intranet-before-update --env-file runtime/local.env
+./gev status
+./gev logs --tail=100
+./gev create-admin your-admin
+./gev backup runtime/backups/intranet-before-update
 ```
 
-管理员密码交互输入。生产实例把命令中的 env 路径改为 `runtime/production.env`。备份另用新的目录名；除数据库及配套应用密钥外，也需安全保存网络文件、部署选项与 CA。恢复数据库流程见[运维指南](../docs/zh-CN/docker-deployment.md)，对应 Compose 命令以 `bash deploy/deploy.sh compose` 开头，重启用 `bash deploy/deploy.sh --no-build`。不要执行 `down -v`。
+新实例首次打开页面时在浏览器中创建管理员；上面的 `create-admin` 是终端方式，密码交互输入。生产实例在命令中加 `-p`。备份另用新的目录名；除数据库及配套应用密钥外，也需安全保存网络文件、部署选项与 CA。恢复数据库流程见[运维指南](../docs/zh-CN/docker-deployment.md)，其余 Compose 操作使用 `./gev compose ...`，重启用 `./gev up --no-build`。不要执行 `down -v`。
 
 | 现象 | 检查位置 |
 |---|---|

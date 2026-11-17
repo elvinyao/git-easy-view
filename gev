@@ -39,10 +39,14 @@ HELP
 }
 
 PRODUCTION=false
+ENV_EXPLICIT=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -p|--production) PRODUCTION=true; ENV_FILE=runtime/production.env; shift ;;
-    -e|--env-file) ENV_FILE="${2:?--env-file needs a path}"; shift 2 ;;
+    -p|--production)
+      PRODUCTION=true
+      if [[ "$ENV_EXPLICIT" == false ]]; then ENV_FILE=runtime/production.env; fi
+      shift ;;
+    -e|--env-file) ENV_FILE="${2:?--env-file needs a path}"; ENV_EXPLICIT=true; shift 2 ;;
     -h|--help|help) usage; exit 0 ;;
     *) break ;;
   esac
@@ -57,14 +61,18 @@ run_tools() { compose run --rm --no-deps "$@"; }
 case "$COMMAND" in
   up)
     arguments=()
-    explicit=false
+    pass_env=true
+    pass_production="$PRODUCTION"
     for argument in "$@"; do
-      case "$argument" in --production|--env-file) explicit=true ;; esac
+      case "$argument" in
+        --env-file) pass_env=false ;;
+        --production)
+          pass_production=false
+          if [[ "$ENV_EXPLICIT" == false ]]; then ENV_FILE=runtime/production.env; fi ;;
+      esac
     done
-    if [[ "$explicit" == false ]]; then
-      arguments+=(--env-file "$ENV_FILE")
-      if [[ "$PRODUCTION" == true ]]; then arguments+=(--production); fi
-    fi
+    if [[ "$pass_env" == true ]]; then arguments+=(--env-file "$ENV_FILE"); fi
+    if [[ "$pass_production" == true ]]; then arguments+=(--production); fi
     exec bash "$ROOT/deploy/deploy.sh" ${arguments[@]+"${arguments[@]}"} "$@" ;;
   start|stop|restart) compose "$COMMAND" web ;;
   status) compose ps "$@" ;;

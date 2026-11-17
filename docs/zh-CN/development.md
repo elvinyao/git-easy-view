@@ -10,7 +10,7 @@ Git 同步原子发布 branch/tag 快照，失败保留旧快照。可选本地 
 
 ## 1. 技术栈与目录
 
-Python 3.13，FastAPI，SQLAlchemy / Alembic，Jinja2，CSS / JavaScript 与 vendored jQuery；默认 SQLite，无需 Redis。前端无需 Node 构建。
+Python 3.13，FastAPI，SQLAlchemy / Alembic，Jinja2，CSS / JavaScript 与 vendored jQuery；数据库为 SQLite。前端无需 Node 构建。
 
 | 路径 | 用途 |
 |---|---|
@@ -20,31 +20,33 @@ Python 3.13，FastAPI，SQLAlchemy / Alembic，Jinja2，CSS / JavaScript 与 ven
 | `app/git_service.py`, `git_workspace.py` | 本地 Git 执行、提交履历及文件详情 |
 | `app/sync.py`, `jobs.py`, `scheduler.py`, `worker.py`, `server.py` | 快照发布、数据库任务队列、定时调度、子进程与单容器启动 |
 | `app/relations.py`, `project_overview.py` | 分支证据、项目批量总览 |
+| `app/first_run.py`, `attention.py`, `unreleased.py` | 首次设置、「需要处理」结论、未上线变更 |
 | `app/templates/`, `app/static/`, `app/locales/` | 页面、静态资源、三语消息目录 |
 | `alembic/versions/` | 数据库迁移 |
-| `tests/` | 单元、集成、规模和 Chromium 回归测试 |
-| `.agent/` | Docker runner、部署、示例、安装包检查与测试镜像 |
+| `tests/` | 单元、规模和 Chromium 回归测试 |
+| `gev`, `deploy/` | 短命令入口；唯一的部署实现（Dockerfile、Compose、代理与 CA） |
+| `.agent/` | 开发用 Docker runner、示例、备份、安装包检查与测试镜像 |
 | `runtime/` | 忽略提交的环境、CA、访问资料、截图和验证结果 |
 
 开始修改前阅读根目录 [AGENTS.md](../../AGENTS.md)。
 
 ## 2. 执行规则与环境准备
 
-宿主机只做源码阅读、搜索、编辑及只读 Git 检查。Python、pip、pytest、迁移、服务器、格式化及 Git 写操作均使用 `bash .agent/run.sh ...`。不要直接执行 Docker Compose 或项目代码。
+宿主机只做源码阅读、搜索、编辑及只读 Git 检查。Python、pip、pytest、迁移、服务器、格式化及 Git 写操作均使用 `bash .agent/run.sh ...`。不要直接执行 Docker Compose 或项目代码。部署、启停以及基于已部署镜像的测试使用 `./gev`（`./gev help`）。
 
 最快获得完整依赖和服务：
 
 ```bash
-bash .agent/run.sh deploy
+./gev up
 ```
 
 此命令不需要 `.venv`。需要独立开发实例时，首次指定独立配置、项目名和端口：
 
 ```bash
-bash .agent/run.sh deploy --env-file runtime/development.env --project-name gev-development --port 8770
+./gev -e runtime/development.env up --project-name gev-development --port 8770
 ```
 
-之后所有 Compose 命令换成 `--env-file runtime/development.env`。不要针对生产配置运行开发工具或示例。
+之后的命令都加 `-e runtime/development.env`。不要针对生产配置运行开发工具或示例。
 
 也可创建仅供容器使用的虚拟环境，便于快速跑源码测试：
 
@@ -58,10 +60,10 @@ bash .agent/run.sh .venv/bin/pip install -e . --no-deps
 
 ## 3. 编辑与本地热重载
 
-默认 `web` 从安装好的镜像运行；修改宿主源码后需要再次 `deploy` 才更新它。快速页面调试可启动挂载源码的 `tools` 容器，使用不同端口：
+默认 `web` 从安装好的镜像运行；修改宿主源码后需要再次 `./gev up` 才更新它。快速页面调试可启动挂载源码的 `tools` 容器，使用不同端口：
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps -p 127.0.0.1:8768:8000 tools uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --reload
+./gev compose run --rm --no-deps -p 127.0.0.1:8768:8000 tools uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --reload
 ```
 
 访问 [http://127.0.0.1:8768](http://127.0.0.1:8768)，结束用 Ctrl+C。此实例复用 local 数据库与缓存；需要隔离时使用上一节的 development 配置。`--reload` 检测 Python 文件，浏览器刷新后读取修改过的模板和静态资源。后台 worker 仍使用已构建代码，改动同步逻辑后重新部署对应开发实例。
@@ -69,16 +71,18 @@ bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps -p 12
 需要 shell 时也进入容器：
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools bash
+./gev shell
 ```
 
 ## 4. 架构与必须保持的行为
 
-`app.server` 执行迁移后启动 Web 和 `app.worker`。worker 定期查找到期仓库，将任务写入 SQLite，串行启动独立任务子进程；子进程持有仓库锁，抓取 Git/API 并按固定 OID 发布快照。数据库是任务事实来源，重启后恢复中断任务；无需 Redis。SQLite 使用 WAL 和 30 秒锁等待，保持短事务。任务超时会终止子进程，最多尝试 5 次。不要把网络请求放进持有写锁的事务。
+`app.server` 执行迁移后启动 Web 和 `app.worker`。worker 定期查找到期仓库，将任务写入 SQLite，串行启动独立任务子进程；子进程持有仓库锁，抓取 Git/API 并按固定 OID 发布快照。数据库是任务事实来源，重启后恢复中断任务。SQLite 使用 WAL 和 30 秒锁等待，保持短事务。任务超时会终止子进程，最多尝试 5 次。不要把网络请求放进持有写锁的事务。
 
 Git 与 API 更新时间独立。分支比较基于不可变 OID 和规则版本缓存，不能在分析过程中混用移动 ref。来源候选、人工声明、计划目标、当前可达性和历史 PR/MR 应分别呈现。
 
 公开 GET 使用 `optional_user`。项目读取公开；非管理员仓库访问必须确认仍关联项目。管理员配置及新同步／比较请求必须 `require_admin`，POST 保持 CSRF 校验。增加 HTML 片段、JSON 或提交 URL 时同样检查访问范围。
+
+`optional_user` 同时执行「登录后才能查看」开关（`app_settings` 表的 `require_login`）：开启后匿名请求被重定向到登录页，因此新增的公开路由必须继续依赖它。没有任何账号时，首页和登录页重定向到 `/setup`；该页面只在 `users` 表为空时可用，生产模式还校验由会话密钥派生的设置码。「需要处理」只读取已发布的快照行，不启动 Git 进程；「未上线变更」对固定 OID 运行本地 Git 并按进程缓存。
 
 公开 GET 可以读取数据库和本地 Git 对象，但不应触发远端抓取或平台写入。管理员的连接检查与仓库发现按既有流程访问平台。保留 TLS 验证、远端 HTTPS 地址校验、输出和时间限制、缓存锁，以及日志中的凭据脱敏。
 
@@ -99,9 +103,9 @@ Python 使用四空格缩进、`snake_case` 函数／模块、`PascalCase` 类�
 修改持久化模型时新增 Alembic migration。对已经部署的 local 开发库生成并检查差异：
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools alembic revision --autogenerate -m "describe schema change"
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps migrate
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools alembic check
+./gev compose run --rm --no-deps tools alembic revision --autogenerate -m "describe schema change"
+./gev compose run --rm --no-deps migrate
+./gev compose run --rm --no-deps tools alembic check
 ```
 
 审查自动生成结果、数据迁移、约束及 downgrade。`init-db` 只供空的非生产开发库创建表，不能替代生产迁移。已有用户数据的数据库不要做 downgrade 演练；使用一次性测试数据库。
@@ -113,23 +117,23 @@ pytest 文件和函数命名 `test_*.py` / `test_*`，复用 `tests/conftest.py`
 默认测试可直接使用部署镜像中的依赖和源码挂载：
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools python .agent/test-unit.py -q
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools python .agent/test-unit.py tests/test_deploy.py tests/test_i18n.py -q
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools python -I .agent/check-installed.py
+./gev test -q
+./gev test tests/test_deploy.py tests/test_i18n.py -q
+./gev compose run --rm --no-deps tools python -I .agent/check-installed.py
 bash .agent/run.sh python .agent/check-docs.py
 ```
 
 `test-unit.py` 清除继承的 `GEV_*` 部署设置，避免它们影响独立单元测试。若已创建 `.venv`，也可运行 `bash .agent/run.sh .venv/bin/pytest -q`。安装包检查使用 `-I`，验证已安装 wheel 的资源；源码测试不能代替它。文档检查验证本地链接、标题、三语 shell 命令一致性及 shell 语法。
 
-以下可选套件以 **local** 配置运行，先构建默认应用镜像（`deploy`）及测试镜像：
+以下可选套件以 **local** 配置运行，先构建默认应用镜像（`./gev up`）及测试镜像：
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env build integration browser
-bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_SCALE=1 integration python -m pytest tests/test_scale.py -q -s
-bash .agent/run.sh compose --env-file runtime/local.env run --rm -e GEV_E2E=1 browser python -m pytest tests/test_e2e.py -q
+./gev compose build browser
+./gev compose run --rm --no-deps -e GEV_SCALE=1 tools python -m pytest tests/test_scale.py -q -s
+./gev compose run --rm -e GEV_E2E=1 browser python -m pytest tests/test_e2e.py -q
 ```
 
-默认测试覆盖 SQLite 的真实后台子进程和迁移复制。旧 PostgreSQL/RQ 兼容套件 `tests/test_integration.py` 仅在另行提供有建库权限的测试 PostgreSQL URL、`GEV_JOB_BACKEND=redis` 和 `GEV_INTEGRATION=1` 时运行；不需要为日常开发启动这些服务。规模测试现在使用独立 SQLite，生成 100 个小型 bare 仓库（各 55 refs、三个提交），不能外推大历史性能。
+默认测试覆盖 SQLite 的真实后台子进程。规模测试使用独立 SQLite，生成 100 个小型 bare 仓库（各 55 refs、三个提交），不能外推大历史性能。
 
 完整 E2E 包含 `test_compose_public_demo_screenshots`，依赖明确初始化的 local 示例（3 仓库 × 55 分支），且 `runtime/demo-access.json` 管理员资料须匹配。新空实例只跑隔离 fixture 用例时追加 `-k 'not compose_public_demo_screenshots'`，不会要求 seed 已有库。截图在 `runtime/screenshots/`，规模输出在 `runtime/verification/`。
 

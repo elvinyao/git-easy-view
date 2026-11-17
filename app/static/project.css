@@ -136,7 +136,11 @@
   .inspector-header, .project-inspector-content { padding: 16px; }
 }
 
-.attention-group, .unreleased-row { margin-bottom: 16px; }
+.attention-group, .unreleased-row { margin-bottom: 16px; padding: 18px 22px; }
+.attention-group .section-heading { padding: 0 0 12px; }
+.attention-group > .muted { margin: 12px 0 0; }
+.overview-heading { flex-wrap: wrap; }
+.overview-heading-actions { flex-wrap: wrap; row-gap: 8px; }
 .attention-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 2px; }
 .attention-list li { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 2fr); gap: 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .attention-list.commits li { grid-template-columns: 5.5rem minmax(0, 3fr) minmax(0, 2fr); }
@@ -147,3 +151,4 @@
 @media (max-width: 720px) {
   .attention-list li, .attention-list.commits li { grid-template-columns: 1fr; gap: 2px; }
 }
+.overview-status-bar + .unreleased-row { margin-top: 16px; }
