@@ -12,7 +12,7 @@ def utc_now() -> datetime:
 
 
 class UTCDateTime(TypeDecorator):
-    """Round-trip aware UTC values on both PostgreSQL and SQLite."""
+    """Round-trip aware UTC values; SQLite stores naive timestamps."""
 
     impl = DateTime(timezone=True)
     cache_ok = True

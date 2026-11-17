@@ -52,7 +52,7 @@ def main():
             temporary.replace(database)
         finally:
             temporary.unlink(missing_ok=True)
-        print("Restored SQLite. Start the application with deploy --no-build.")
+        print("Restored SQLite. Start the application with ./gev up --no-build.")
 
 
 if __name__ == "__main__":

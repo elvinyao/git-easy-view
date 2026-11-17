@@ -1,16 +1,12 @@
-"""Durable database jobs with optional Redis delivery and shared-volume locks.
+"""Durable database jobs and shared-volume repository locks.
 
-All workers and dispatchers MUST mount the same cache_root. File locks, rather
+Every process MUST use the same cache_root. File locks, rather
 than an expiring heartbeat, determine whether repository work is alive.
 """
 from contextlib import contextmanager
 import fcntl
 from pathlib import Path
 
-from redis import Redis
-from rq import Queue
-from rq.exceptions import NoSuchJobError, DuplicateJobError
-from rq.job import Job
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -23,43 +19,6 @@ ACTIVE = ("pending", "queued", "running", "retry")
 TERMINAL = ("succeeded", "failed", "superseded", "auth_failed")
 
 
-class RQDelivery:
-    def __init__(self, settings):
-        self.settings = settings
-        self.connection = Redis.from_url(settings.redis_url, socket_connect_timeout=5, socket_timeout=5)
-        self.queue = Queue(settings.queue_name, connection=self.connection)
-
-    @staticmethod
-    def key(job_id):
-        return f"gev-job-{job_id}"
-
-    def state(self, job_id):
-        key = self.key(job_id)
-        try:
-            status = Job.fetch(key, connection=self.connection).get_status(refresh=True)
-        except NoSuchJobError:
-            return None
-        status = status.value if hasattr(status, "value") else status
-        if status == "queued" and self.connection.lpos(self.queue.key, key) is None:
-            return None  # A surviving job hash does not prove a queue entry exists.
-        return status
-
-    def ensure(self, job_id):
-        key = self.key(job_id)
-        if self.state(job_id) == "queued":
-            return
-        try:
-            Job.fetch(key, connection=self.connection).delete()
-        except NoSuchJobError:
-            pass
-        try:
-            self.queue.enqueue("app.jobs.run_sync_job", job_id, job_id=key, unique=True,
-                               job_timeout=self.settings.job_timeout_seconds,
-                               result_ttl=3600, failure_ttl=86400)
-        except DuplicateJobError:
-            pass
-
-
 class DatabaseDelivery:
     """The committed SyncJob row is the queue; no external delivery is needed."""
 
@@ -68,7 +27,7 @@ class DatabaseDelivery:
 
 
 def delivery(settings):
-    return RQDelivery(settings) if settings.job_backend == "redis" else DatabaseDelivery()
+    return DatabaseDelivery()
 
 
 @contextmanager
@@ -204,14 +163,13 @@ def dispatch_pending(*, settings=None, queue=None):
                         elif job.attempts >= job.max_attempts:
                             job.status, job.finished_at = "failed", utc_now()
                         else:
-                            # No live lock holder: a 'running' row is abandoned,
-                            # regardless of a stale Redis started-job registry.
+                            # No live lock holder: a 'running' row is abandoned.
                             job.status = "pending"
                         session.commit()
                         if job.status == "pending":
                             _deliver(session, job, queue, locked=True)
             except Exception:
-                # One broken repository/Redis delivery cannot stop the scan.
+                # One broken repository cannot stop the scan.
                 continue
     finally:
         engine.dispose()

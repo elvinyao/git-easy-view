@@ -63,7 +63,7 @@ if command[:1] == ['port']:
             'COMPAT_HEALTH': health, 'COMPAT_FAIL': failure,
             **(extra_env or {}),
         }
-        result = subprocess.run(['bash' if script.endswith('run.sh') or script == 'deploy/deploy.sh' else 'sh', str(ROOT / script), *arguments], cwd=ROOT, env=env, capture_output=True, text=True, timeout=20)
+        result = subprocess.run(['bash' if script.endswith('run.sh') or script in ('deploy/deploy.sh', 'gev') else 'sh', str(ROOT / script), *arguments], cwd=ROOT, env=env, capture_output=True, text=True, timeout=20)
         rows = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
         return result, rows
 
@@ -74,8 +74,8 @@ def compose_commands(rows):
     return [row for row in rows if '--project-directory' in row]
 
 
-def test_default_deploy_falls_back_to_v1_and_waits_for_real_health(compose_cli):
-    result, rows = compose_cli('.agent/deploy.sh', '--no-build')
+def test_default_deploy_falls_back_to_v1_and_waits_for_real_health(compose_cli, intranet_env):
+    result, rows = compose_cli('deploy/internal-deploy.sh', '--env-file', intranet_env[0], '--no-build')
     assert result.returncode == 0, result.stderr
     commands = compose_commands(rows)
     assert commands and all(row[0] == 'docker-compose' for row in commands)
@@ -85,16 +85,16 @@ def test_default_deploy_falls_back_to_v1_and_waits_for_real_health(compose_cli):
     assert 'Deployment complete' in result.stdout
 
 
-def test_plugin_is_preferred_when_both_commands_exist(compose_cli):
-    result, rows = compose_cli('.agent/deploy.sh', '--no-build', plugin='v2.35.1')
+def test_plugin_is_preferred_when_both_commands_exist(compose_cli, intranet_env):
+    result, rows = compose_cli('deploy/internal-deploy.sh', '--env-file', intranet_env[0], '--no-build', plugin='v2.35.1')
     assert result.returncode == 0, result.stderr
     assert all(row[:2] == ['docker', 'compose'] for row in compose_commands(rows))
     assert not any(row[0] == 'docker-compose' for row in rows)
     assert any('--wait' in row for row in rows)
 
 
-def test_legacy_update_replaces_only_service_container_and_keeps_volumes(compose_cli):
-    result, rows = compose_cli('.agent/deploy.sh', '--no-build')
+def test_legacy_update_replaces_only_service_container_and_keeps_volumes(compose_cli, intranet_env):
+    result, rows = compose_cli('deploy/internal-deploy.sh', '--env-file', intranet_env[0], '--no-build')
     assert result.returncode == 0, result.stderr
     commands = compose_commands(rows)
     replace = next(row for row in commands if 'rm' in row)
@@ -106,23 +106,23 @@ def test_legacy_update_replaces_only_service_container_and_keeps_volumes(compose
 
 
 @pytest.mark.parametrize('version', ['1.28.6', '1.29.1', 'missing'])
-def test_unsupported_or_missing_compose_fails_before_stopping(compose_cli, version):
-    result, rows = compose_cli('.agent/deploy.sh', '--no-build', standalone=version)
+def test_unsupported_or_missing_compose_fails_before_stopping(compose_cli, intranet_env, version):
+    result, rows = compose_cli('deploy/internal-deploy.sh', '--env-file', intranet_env[0], '--no-build', standalone=version)
     assert result.returncode != 0
     assert not any('stop' in row or 'up' in row for row in rows)
     assert 'Compose' in result.stderr
 
 
 @pytest.mark.parametrize('health', ['unhealthy', 'missing', 'starting'])
-def test_legacy_unhealthy_missing_or_timeout_never_claims_success(compose_cli, health):
-    result, _ = compose_cli('.agent/deploy.sh', '--no-build', '--wait-timeout', '1', health=health)
+def test_legacy_unhealthy_missing_or_timeout_never_claims_success(compose_cli, intranet_env, health):
+    result, _ = compose_cli('deploy/internal-deploy.sh', '--env-file', intranet_env[0], '--no-build', '--wait-timeout', '1', health=health)
     assert result.returncode != 0
     assert 'Deployment complete' not in result.stdout
     assert 'retained' in result.stderr
 
 
-def test_legacy_migration_failure_never_starts_web(compose_cli):
-    result, rows = compose_cli('.agent/deploy.sh', '--no-build', failure='migration')
+def test_legacy_migration_failure_never_starts_web(compose_cli, intranet_env):
+    result, rows = compose_cli('deploy/internal-deploy.sh', '--env-file', intranet_env[0], '--no-build', failure='migration')
     assert result.returncode == 12
     assert not any('up' in row for row in rows)
     assert 'remain stopped' in result.stderr
@@ -208,7 +208,7 @@ def test_legacy_management_rejects_stale_merged_project_settings(compose_cli, in
     assert not compose_commands(rows)
 
 
-@pytest.mark.parametrize('script,arguments', [('.agent/run.sh', ['compose', 'ps']), ('deploy/deploy.sh', ['compose', 'ps'])])
+@pytest.mark.parametrize('script,arguments', [('.agent/run.sh', ['compose', 'ps']), ('deploy/deploy.sh', ['compose', 'ps']), ('gev', ['status'])])
 def test_public_launchers_accept_company_cli_image_without_host_compose(compose_cli, script, arguments):
     result, rows = compose_cli(script, *arguments, extra_env={'GEV_DOCKER_CLI_IMAGE': 'registry.example/docker-cli:legacy'})
     assert result.returncode == 0, result.stderr

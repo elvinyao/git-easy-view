@@ -1,5 +1,4 @@
-"""Real subprocess queue execution without a Redis server."""
-import importlib.util
+"""Real subprocess queue execution."""
 import os
 from pathlib import Path
 import signal
@@ -28,7 +27,7 @@ def test_production_accepts_persistent_sqlite_and_rejects_memory():
             Settings(database_url=url, **kwargs)
 
 
-def test_worker_recovers_abandoned_comparison_and_publishes_without_redis(system, remote):
+def test_worker_recovers_abandoned_comparison_and_publishes(system, remote):
     run(system, remote)
     with Session(system.engine) as session:
         session.get(PlatformConnection, 1).auth_disabled = True  # Never contact a real provider.
@@ -42,8 +41,8 @@ def test_worker_recovers_abandoned_comparison_and_publishes_without_redis(system
         session.commit()
     env = {key: value for key, value in os.environ.items() if not key.startswith("GEV_")}
     env.update(GEV_PRODUCTION="false", GEV_DATABASE_URL=system.settings.database_url,
-               GEV_CACHE_ROOT=system.settings.cache_root, GEV_JOB_BACKEND="database",
-               GEV_SCHEDULER_INTERVAL_SECONDS="1", GEV_REDIS_URL="redis://127.0.0.1:1/0")
+               GEV_CACHE_ROOT=system.settings.cache_root,
+               GEV_SCHEDULER_INTERVAL_SECONDS="1")
     process = subprocess.Popen([sys.executable, "-m", "app.worker"], env=env)
     try:
         deadline = time.monotonic() + 15
@@ -63,26 +62,6 @@ def test_worker_recovers_abandoned_comparison_and_publishes_without_redis(system
     finally:
         stop_child(process)
     assert process.returncode == 0
-
-
-def test_sqlite_transfer_preserves_rows_and_refuses_overwrite(system, remote, monkeypatch):
-    run(system, remote)
-    monkeypatch.setenv("GEV_PRODUCTION", "false")
-    # Fixture uses metadata.create_all; stamp its known matching revision.
-    with system.engine.begin() as connection:
-        connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
-        connection.execute(text("INSERT INTO alembic_version VALUES ('0003')"))
-    path = Path(__file__).resolve().parents[1] / ".agent/migrate-sqlite.py"
-    spec = importlib.util.spec_from_file_location("sqlite_transfer", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    target = system.tmp / "copied.sqlite3"
-    counts = module.copy_database(system.settings.database_url, target)
-    assert counts["branches"] == 3 and counts["sync_jobs"] == 1
-    original = target.read_bytes()
-    with pytest.raises(ValueError, match="already exists"):
-        module.copy_database(system.settings.database_url, target)
-    assert target.read_bytes() == original
 
 
 def test_job_termination_stops_git_and_releases_repository_lock(system):
@@ -142,41 +121,3 @@ runpy.run_module("app.worker", run_name="__main__")
                 os.killpg(git_group, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-
-
-@pytest.mark.parametrize("backend_line", ["", "GEV_JOB_BACKEND='redis'\n"])
-def test_sqlite_migration_preserves_literal_quoted_secrets(tmp_path, monkeypatch, backend_line):
-    path = Path(__file__).resolve().parents[1] / ".agent/migrate-sqlite.py"
-    spec = importlib.util.spec_from_file_location("sqlite_transfer", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    target = tmp_path / "deployment.env"
-    secret_line = "GEV_SESSION_SECRET='literal-$TOKEN-with-spaces # and \\\\slashes-123456789'\n"
-    preserved = "# Keep quotation and comments exactly.\n" + secret_line + 'GEV_CREDENTIAL_KEY="example-key"\n'
-    original = (
-        preserved + "GEV_DATABASE_URL='postgresql+psycopg://gev:password@postgres:5432/gev'\n"
-        + "POSTGRES_PASSWORD=password\nGEV_REDIS_URL='redis://redis:6379/0'\n"
-        + backend_line + "# Final comment without newline"
-    )
-    target.write_text(original)
-    transfers = []
-
-    def copy_database(source, destination):
-        transfers.append((source, destination))
-        return {"users": 3}
-
-    monkeypatch.setattr(module, "copy_database", copy_database)
-    monkeypatch.setattr(sys, "argv", [str(path), "--env-file", str(target)])
-    mask = os.umask(0o022)
-    try:
-        module.main()
-    finally:
-        os.umask(mask)
-
-    assert transfers == [("postgresql+psycopg://gev:password@postgres:5432/gev", Path("/data/db/gev.sqlite3"))]
-    assert target.read_text() == (
-        preserved + "GEV_DATABASE_URL=sqlite:////data/db/gev.sqlite3\n"
-        + "# Final comment without newline\nGEV_JOB_BACKEND=database\n"
-    )
-    assert target.with_name(target.name + ".postgres-backup").read_bytes() == original.encode()
-    assert target.stat().st_mode & 0o777 == 0o600

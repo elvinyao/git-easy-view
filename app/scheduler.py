@@ -1,6 +1,4 @@
-"""Scheduling shared by the bundled database worker and legacy RQ deployments."""
-import signal
-import threading
+"""Periodic scheduling, run by the bundled database worker."""
 from datetime import timedelta
 
 from sqlalchemy import or_, select
@@ -35,19 +33,3 @@ def tick(*, settings=None, queue=None):
     finally:
         engine.dispose()
 
-
-def main():
-    settings = Settings()
-    stopped = threading.Event()
-    for signum in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(signum, lambda *_: stopped.set())
-    while not stopped.is_set():
-        try:
-            tick(settings=settings)
-        except Exception:
-            pass  # A database outage must not permanently kill scheduling.
-        stopped.wait(max(1, min(60, settings.scheduler_interval_seconds)))
-
-
-if __name__ == "__main__":
-    main()
