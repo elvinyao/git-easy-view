@@ -251,7 +251,6 @@ def test_invalid_network_settings_are_rejected_without_disclosing_values(values,
     (("--ca-dir", "runtime"), "inside runtime"),
     (("--env-file", "runtime/team/app.env", "--project-name", "test-team", "--ca-dir", "runtime/team"), "CA"),
     (("--bind-address", "proxy.internal"), "IPv4"),
-    (("--migrate-sqlite",), "original deploy"),
 ])
 def test_invalid_paths_and_collisions_preserve_application_configuration(deployment_directory, arguments, match):
     setup.prepare(options("--init"))

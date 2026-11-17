@@ -47,8 +47,6 @@ def terminate_job(*_):
 
 def main():
     settings = Settings()
-    if settings.job_backend != "database":
-        raise ValueError("The bundled worker requires GEV_JOB_BACKEND=database")
     engine = make_engine(settings.database_url)
     stopped = threading.Event()
     for signum in (signal.SIGINT, signal.SIGTERM):

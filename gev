@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Git Easy View: one short command for deployment and daily operation.
+# Everything runs in Docker; no Python or application code runs on the host.
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${GEV_ENV_FILE_PATH:-runtime/local.env}"
+
+usage() {
+  cat <<'HELP'
+Usage: ./gev [-p | -e runtime/NAME.env] COMMAND [ARGUMENTS]
+
+Deploy and run
+  up [OPTIONS]        Configure, build, migrate and start (repeat after updating code)
+                      Options: --no-build, --pull, --port N, --bind-address IP, --init,
+                      --network-file FILE, --ca-dir DIR, --wait-timeout SECONDS
+  start | stop | restart
+  status              Show the container and its health
+  logs [ARGUMENTS]    Follow application logs
+  down                Remove the container; data volumes are kept
+
+Accounts and data
+  setup-code          Print the one-time code for first-run setup in the browser
+  create-admin NAME   Create an administrator from the terminal instead
+  seed                Load example projects and demo accounts (local only)
+  backup [DIRECTORY]  Online SQLite backup (default runtime/backups/TIMESTAMP)
+  restore DIRECTORY   Restore a backup; stop the application first
+
+Development
+  test [ARGUMENTS]    Run the source test suite
+  shell               Open a shell in a tools container
+  run COMMAND...      Run any command in a clean Python container
+  compose ARGUMENTS   Pass arguments straight to Docker Compose
+
+Environment
+  -p, --production    Use runtime/production.env (default runtime/local.env)
+  -e, --env-file F    Use another runtime/*.env file
+HELP
+}
+
+PRODUCTION=false
+ENV_EXPLICIT=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p|--production)
+      PRODUCTION=true
+      if [[ "$ENV_EXPLICIT" == false ]]; then ENV_FILE=runtime/production.env; fi
+      shift ;;
+    -e|--env-file) ENV_FILE="${2:?--env-file needs a path}"; ENV_EXPLICIT=true; shift 2 ;;
+    -h|--help|help) usage; exit 0 ;;
+    *) break ;;
+  esac
+done
+COMMAND="${1:-}"
+[[ $# -gt 0 ]] && shift
+if [[ -z "$COMMAND" ]]; then usage; exit 2; fi
+
+compose() { bash "$ROOT/deploy/deploy.sh" compose --env-file "$ENV_FILE" "$@"; }
+run_tools() { compose run --rm --no-deps "$@"; }
+
+case "$COMMAND" in
+  up)
+    arguments=()
+    pass_env=true
+    pass_production="$PRODUCTION"
+    for argument in "$@"; do
+      case "$argument" in
+        --env-file) pass_env=false ;;
+        --production)
+          pass_production=false
+          if [[ "$ENV_EXPLICIT" == false ]]; then ENV_FILE=runtime/production.env; fi ;;
+      esac
+    done
+    if [[ "$pass_env" == true ]]; then arguments+=(--env-file "$ENV_FILE"); fi
+    if [[ "$pass_production" == true ]]; then arguments+=(--production); fi
+    exec bash "$ROOT/deploy/deploy.sh" ${arguments[@]+"${arguments[@]}"} "$@" ;;
+  start|stop|restart) compose "$COMMAND" web ;;
+  status) compose ps "$@" ;;
+  logs)
+    if [[ $# -eq 0 ]]; then set -- -f --tail=100; fi
+    compose logs "$@" web ;;
+  down)
+    for argument in "$@"; do
+      case "$argument" in
+        -v|--volumes) echo "Refusing to delete data volumes. Use ./gev compose down -v if you really mean it." >&2; exit 2 ;;
+      esac
+    done
+    compose down "$@" ;;
+  setup-code) run_tools -T tools python -m app.cli setup-code ;;
+  create-admin)
+    name="${1:?Usage: ./gev create-admin NAME}"
+    run_tools tools python -m app.cli create-user --username "$name" --admin ;;
+  seed)
+    if [[ "$ENV_FILE" != runtime/local.env ]]; then
+      echo "Example data is only for the local environment." >&2; exit 2
+    fi
+    run_tools -T tools python .agent/seed-local.py ;;
+  backup)
+    directory="${1:-runtime/backups/$(date +%Y%m%d-%H%M%S)}"
+    run_tools -T tools python .agent/sqlite-backup.py backup "$directory" --env-file "$ENV_FILE" ;;
+  restore)
+    directory="${1:?Usage: ./gev restore DIRECTORY}"
+    run_tools -T tools python .agent/sqlite-backup.py restore "$directory" --env-file "$ENV_FILE" ;;
+  test) run_tools tools python .agent/test-unit.py "$@" ;;
+  shell) run_tools tools bash ;;
+  run) exec bash "$ROOT/.agent/run.sh" "$@" ;;
+  compose) compose "$@" ;;
+  *) echo "Unknown command: $COMMAND" >&2; usage >&2; exit 2 ;;
+esac

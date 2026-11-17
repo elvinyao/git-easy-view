@@ -14,7 +14,7 @@ from app.config import Settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("deployment_setup", ROOT / ".agent/setup-local.py")
+spec = importlib.util.spec_from_file_location("deployment_setup", ROOT / "deploy/configuration.py")
 setup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(setup)
 
@@ -51,7 +51,7 @@ def test_first_deployment_is_valid_and_redeployment_preserves_secrets(deployment
     output = capsys.readouterr().out
     assert "Preserved runtime/local.env" in output
     assert values["GEV_DATABASE_URL"] == "sqlite:////data/db/gev.sqlite3"
-    assert "POSTGRES_PASSWORD" not in values and "GEV_REDIS_URL" not in values
+    assert "GEV_JOB_BACKEND" not in values
     for key in ("GEV_CREDENTIAL_KEY", "GEV_SESSION_SECRET"):
         assert values[key] not in output
 
@@ -130,80 +130,3 @@ def test_invalid_configuration_error_does_not_expose_password(deployment_directo
     assert result.value.code == 1
     assert password not in capsys.readouterr().err
     assert target.read_text() == original
-
-
-@pytest.fixture
-def fake_docker(tmp_path):
-    binary = tmp_path / "docker"
-    binary.write_text(f"#!{sys.executable}\n" + """
-import json, os, sys
-args = sys.argv[1:]
-with open(os.environ['DEPLOY_CALLS'], 'a') as file:
-    file.write(json.dumps(args) + '\\n')
-if args == ['compose', 'version', '--short']:
-    print('2.35.1')
-    sys.exit(0)
-if args[0] == 'compose':
-    command = args[7:]
-    if os.environ.get('DEPLOY_FAIL') == 'build' and command[0] == 'build':
-        sys.exit(11)
-    if os.environ.get('DEPLOY_FAIL') == 'migration' and command[:1] == ['run'] and command[-1] == 'migrate':
-        sys.exit(12)
-    if os.environ.get('DEPLOY_FAIL') == 'health' and command[:1] == ['up'] and command[-1] == 'web':
-        sys.exit(13)
-    if command[:1] == ['port']:
-        print('127.0.0.1:8766')
-""")
-    binary.chmod(0o755)
-    calls = tmp_path / "calls.jsonl"
-
-    def run(*arguments, failure=""):
-        environment = {
-            **os.environ,
-            "PATH": f"{tmp_path}:{os.environ['PATH']}",
-            "GEV_PROJECT_ROOT": "/example/project with spaces",
-            "DEPLOY_CALLS": str(calls),
-            "DEPLOY_FAIL": failure,
-        }
-        result = subprocess.run(["sh", str(ROOT / ".agent/deploy.sh"), *arguments], env=environment, capture_output=True, text=True)
-        raw = [json.loads(line) for line in calls.read_text().splitlines()]
-        rows = [row for row in raw if row[:2] == ["compose", "--project-directory"]]
-        commands = [row[7:] for row in rows]
-        assert all(row[1:6] == ["--project-directory", "/example/project with spaces", "-f", "/example/project with spaces/compose.yaml", "--env-file"] for row in rows)
-        return result, commands
-
-    return run
-
-
-def test_deployment_stops_writers_and_runs_migration_on_every_attempt(fake_docker):
-    result, calls = fake_docker()
-    assert result.returncode == 0, result.stderr
-    stop = calls.index(["stop", "web", "worker", "dispatcher"])
-    migrate = calls.index(["run", "--rm", "--no-deps", "-T", "migrate"])
-    startup = calls.index(["up", "-d", "--no-deps", "--no-build", "--wait", "--wait-timeout", "180", "web"])
-    assert stop < migrate < startup
-    assert calls[0] == ["config", "--quiet"]
-    assert "No accounts" in result.stdout
-    assert not any("down" in call or "demo" in call for call in calls)
-
-
-def test_fast_deployment_reuses_image_and_waits_for_health(fake_docker):
-    result, calls = fake_docker("--no-build", "--wait-timeout", "25")
-    assert result.returncode == 0
-    assert not any(call[0] == "build" for call in calls)
-    assert any(call[:1] == ["up"] and "25" in call and "--wait" in call for call in calls)
-    assert ["run", "--rm", "--no-deps", "-T", "migrate"] in calls
-
-
-@pytest.mark.parametrize("failure,expected", [("build", 11), ("migration", 12), ("health", 13)])
-def test_deployment_failure_is_nonzero_and_never_deletes_volumes(fake_docker, failure, expected):
-    result, calls = fake_docker(failure=failure)
-    assert result.returncode == expected
-    assert "Deployment failed during" in result.stderr
-    assert "Deployment complete" not in result.stdout
-    assert not any(call[0] == "down" for call in calls)
-    if failure == "build":
-        assert not any(call[0] == "stop" for call in calls)
-    if failure == "migration":
-        assert "remain stopped" in result.stderr
-        assert not any(call[0] == "up" and call[-1] == "web" for call in calls)

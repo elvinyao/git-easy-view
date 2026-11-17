@@ -8,10 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.models import Project, ProjectRepository, Repository, User
+from app.models import AppSetting, Project, ProjectRepository, Repository, User
 
 
 SESSION_COOKIE = "gev_session"
+REQUIRE_LOGIN = "require_login"
 
 
 def _serializer(request: Request) -> URLSafeTimedSerializer:
@@ -61,11 +62,24 @@ async def verify_csrf(request: Request) -> None:
 
 
 def optional_user(request: Request, session: Session = Depends(get_session)) -> User | None:
-    """Resolve a valid account without requiring a session for public reads."""
+    """Resolve a valid account; public reads need none unless login is required."""
     data = session_data(request)
     user_id = data["user_id"] if data else None
     user = session.get(User, user_id) if user_id is not None else None
-    return user if user is not None and user.is_active else None
+    if user is not None and user.is_active:
+        return user
+    if login_required(session):
+        raise HTTPException(status_code=303, headers={"Location": "/login?" + urlencode({"next": login_destination(request)})})
+    return None
+
+
+def login_required(session: Session) -> bool:
+    """Whether an administrator restricted every page to signed-in accounts."""
+    return session.scalar(select(AppSetting.value).where(AppSetting.key == REQUIRE_LOGIN)) == "1"
+
+
+def has_users(session: Session) -> bool:
+    return session.scalar(select(User.id).limit(1)) is not None
 
 
 def safe_next(value: str | None) -> str:
@@ -107,11 +121,11 @@ def login_destination(request: Request) -> str:
             "/admin/users": "/admin/users/new",
             "/admin/connections": "/admin/connections/new",
             "/admin/repositories/import": "/admin",
+            "/admin/settings/access": "/admin",
             "/logout": "/",
         }.get(destination, destination)
         destination = re.sub(r"^(/admin/repositories/[0-9]+)/(?:sync|projects)$", r"\1", destination)
         destination = re.sub(r"^(/admin/connections/[0-9]+)/check$", r"\1", destination)
-        destination = re.sub(r"^(/admin/projects/[0-9]+)/members$", r"\1", destination)
         destination = re.sub(r"^(/repositories/[0-9]+/branches/[0-9]+)/compare$", r"\1", destination)
     if request.url.query:
         destination += "?" + request.url.query

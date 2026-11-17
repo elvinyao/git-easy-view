@@ -1,7 +1,7 @@
 #!/bin/sh
 # Internal orchestration, executed inside Docker by deploy/deploy.sh.
 set -eu
-: "${GEV_PROJECT_ROOT:?Use bash deploy/deploy.sh}"
+: "${GEV_PROJECT_ROOT:?Use ./gev up}"
 . /workspace/deploy/compose-common.sh
 env_file=
 production=false
@@ -29,7 +29,10 @@ failure() {
   status=$?
   if [ "$status" -ne 0 ]; then
     printf 'Deployment failed during %s. Configuration and volumes retained.\n' "$phase" >&2
-    printf 'Inspect: bash deploy/deploy.sh compose --env-file %s logs --tail=100 web\n' "$env_file" >&2
+    printf 'Inspect: ./gev -e %s logs --tail=100\n' "$env_file" >&2
+    if [ "$phase" = "database migration" ]; then
+      printf 'Application services remain stopped. Fix the migration or restore a verified backup before restarting.\n' >&2
+    fi
   fi
 }
 trap failure EXIT
@@ -43,7 +46,7 @@ if [ "$build" = true ]; then
   if [ "$pull" = true ]; then compose build --pull web; else compose build web; fi
 fi
 phase="CA and application configuration validation"
-compose run --rm --no-deps -T tools python -c 'import os; from pathlib import Path; from app.config import Settings; Settings(); entrypoint = Path("/opt/gev-deploy/entrypoint.py"); assert entrypoint.is_file() and (not os.environ.get("GEV_RUNTIME_NETWORK_FILE") or "def runtime_environment(" in entrypoint.read_text()) and Path(os.environ.get("SSL_CERT_FILE", "/missing")).is_file(), "Rebuild with bash deploy/deploy.sh before using --no-build"; print("Settings and CA valid")'
+compose run --rm --no-deps -T tools python -c 'import os; from pathlib import Path; from app.config import Settings; Settings(); entrypoint = Path("/opt/gev-deploy/entrypoint.py"); assert entrypoint.is_file() and (not os.environ.get("GEV_RUNTIME_NETWORK_FILE") or "def runtime_environment(" in entrypoint.read_text()) and Path(os.environ.get("SSL_CERT_FILE", "/missing")).is_file(), "Rebuild with ./gev up before using --no-build"; print("Settings and CA valid")'
 phase="stop application writers"
 compose stop web
 phase="database migration"
@@ -53,4 +56,9 @@ compose_start "$wait_timeout" web -d --no-deps --no-build
 compose ps
 printf 'Deployment complete. Published address: '
 compose port web 8000
-if [ "$production" = true ]; then printf 'Use your HTTPS reverse proxy for browser login.\n'; fi
+if [ "$production" = true ]; then
+  printf 'Use your HTTPS reverse proxy for browser login.\n'
+  printf 'First visit: create the administrator in the browser with the code from ./gev -p setup-code\n'
+else
+  printf 'Open that address with http:// in your browser; the first visit creates the administrator.\n'
+fi

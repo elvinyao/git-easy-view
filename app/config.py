@@ -1,5 +1,4 @@
 import secrets
-from typing import Literal
 from sqlalchemy.engine import make_url
 
 from cryptography.fernet import Fernet
@@ -14,12 +13,9 @@ class Settings(BaseSettings):
     database_url: str | None = Field(default=None, repr=False)
     session_secret: str | None = Field(default=None, repr=False)
     credential_key: str | None = Field(default=None, repr=False)
-    redis_url: str = Field(default="redis://localhost:6379/0", repr=False)
-    job_backend: Literal["database", "redis"] = "database"
     cache_root: str = "./data/git"
     local_git_root: str = "/data/local-git"
     local_git_directory: str | None = None  # Host mapping label; never used to access files.
-    queue_name: str = "git-sync"
     job_timeout_seconds: int = 3600
     scheduler_interval_seconds: int = 15
     heartbeat_interval_seconds: int = 15
@@ -32,13 +28,11 @@ class Settings(BaseSettings):
             if not self.database_url:
                 raise ValueError("Production requires an explicit persistent GEV_DATABASE_URL")
             url = make_url(self.database_url)
-            if url.get_backend_name() not in ("sqlite", "postgresql") or (
-                url.get_backend_name() == "sqlite" and (
-                    not url.database or not url.database.startswith("/")
-                    or url.database == ":memory:" or url.query.get("mode") == "memory"
-                )
+            if (
+                url.get_backend_name() != "sqlite" or not url.database or not url.database.startswith("/")
+                or url.database == ":memory:" or url.query.get("mode") == "memory"
             ):
-                raise ValueError("Production requires PostgreSQL or an absolute SQLite file path")
+                raise ValueError("Production requires an absolute SQLite file path")
             if not self.session_secret or len(self.session_secret) < 32:
                 raise ValueError("Production requires GEV_SESSION_SECRET of at least 32 characters")
             if not self.credential_key:
@@ -48,6 +42,8 @@ class Settings(BaseSettings):
             self.cookie_secure = True
         else:
             self.database_url = self.database_url or "sqlite:///./git-easy-view.db"
+            if make_url(self.database_url).get_backend_name() != "sqlite":
+                raise ValueError("GEV_DATABASE_URL must be a SQLite URL")
             self.session_secret = self.session_secret or secrets.token_urlsafe(48)
             self.credential_key = self.credential_key or Fernet.generate_key().decode()
             if self.cookie_secure is None:

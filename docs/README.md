@@ -6,35 +6,36 @@
 | 日本語 | [ユーザーガイド](ja/user-guide.md) | [開発ガイド](ja/development.md) | [Docker・自動デプロイ](ja/docker-deployment.md) |
 | English | [User guide](en/user-guide.md) | [Development guide](en/development.md) | [Docker and automated deployment](en/docker-deployment.md) |
 
-独立部署（内网代理/CA 与个人电脑直连）：`bash deploy/deploy.sh --init` → `bash deploy/deploy.sh`（[中文](../deploy/README.md) · [日本語](../deploy/README.ja.md) · [English](../deploy/README.en.md)）。
+代理与公司 CA / プロキシと社内 CA / Proxy and company CA：`./gev up --init` → `./gev up`（[中文](../deploy/README.md) · [日本語](../deploy/README.ja.md) · [English](../deploy/README.en.md)）。
 
 ## 快速启动与初始账号 / クイックスタートと初期アカウント / Quick start & initial accounts
 
 ```bash
-bash .agent/run.sh deploy
+./gev up
 ```
 
 默认访问 / 既定 URL / Default URL: [http://127.0.0.1:8766](http://127.0.0.1:8766)。
-应用无硬编码默认密码，首次部署后 `users` 表为空；`deploy` 会在未跟踪的 `runtime/demo-access.json` 中生成随机密码。
-ハードコードされた初期パスワードはなく、初回デプロイ直後の `users` テーブルは空です（`runtime/demo-access.json` にランダムなパスワードを生成）。
-No hardcoded default password exists (`users` table starts empty; random demo passwords are generated in untracked `runtime/demo-access.json`).
+首次打开页面时在浏览器中创建管理员；应用无硬编码默认密码。全部命令见 `./gev help`。
+最初にページを開いたとき、ブラウザーで管理者を作成します。ハードコードされた初期パスワードはありません。全コマンドは `./gev help` で確認できます。
+You create the administrator in the browser on the first visit; there is no hardcoded default password. `./gev help` lists every command.
 
 - **导入示例数据与演示账号 / サンプルとデモアカウント作成 / Seed demo data & accounts**（`demo-admin` / `demo-member`，密码见 `runtime/demo-access.json`）：
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps -T tools python .agent/seed-local.py
+./gev seed
 ```
 
-- **仅创建自定义管理员 / 管理者のみ作成 / Create custom admin only**（按提示输入密码 / プロンプト入力 / interactive prompt）：
+- **在终端创建管理员 / 端末から管理者を作成 / Create an admin from the terminal**（按提示输入密码 / プロンプト入力 / interactive prompt）：
 
 ```bash
-bash .agent/run.sh compose --env-file runtime/local.env run --rm --no-deps tools python -m app.cli create-user --username admin --admin
+./gev create-admin admin
 ```
 
-- **生产后端部署 / 本番バックエンド / Production backend**（需另配 HTTPS 反向代理 / 要 HTTPS リバースプロキシ / requires HTTPS reverse proxy）：
+- **生产后端部署 / 本番バックエンド / Production backend**（需另配 HTTPS 反向代理；首次设置需要设置码 / 要 HTTPS リバースプロキシ、初期設定にセットアップコードが必要 / requires HTTPS reverse proxy; first-run setup asks for the setup code）：
 
 ```bash
-bash .agent/run.sh deploy --production --wait-timeout 300
+./gev -p up --wait-timeout 300
+./gev -p setup-code
 ```
 
 修改功能或命令时，请同步更新中、日、英三语文档并运行 `bash .agent/run.sh python .agent/check-docs.py`。

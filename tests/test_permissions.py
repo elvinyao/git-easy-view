@@ -2,7 +2,7 @@ import pytest
 from urllib.parse import parse_qs, urlsplit
 from sqlalchemy.orm import Session
 
-from app.models import AuditEvent, Branch, PlatformConnection, ProjectMember, ProjectRepository, PullRequest, Repository, SyncJob, User
+from app.models import AuditEvent, Branch, PlatformConnection, ProjectRepository, PullRequest, Repository, SyncJob, User
 from test_pages import pages
 from test_auth import csrf_from
 
@@ -10,7 +10,6 @@ from test_auth import csrf_from
 @pytest.fixture
 def public_pages(app, client, pages):
     with Session(app.state.engine) as s:
-        s.query(ProjectMember).delete()
         connection = s.get(PlatformConnection, pages["connection"])
         connection.encrypted_token = app.state.settings.encrypt_token("never-publish-platform-token")
         pr = PullRequest(connection_id=pages["connection"], repository_id=pages["repo"], external_id="public-record", title="Public PR", web_url="https://github.com/team/api/pull/1", state="merged")

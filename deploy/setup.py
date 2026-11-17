@@ -86,9 +86,9 @@ def normalize_network(values):
 
 def argument_parser():
     parser = base.argument_parser()
-    parser.prog = "bash deploy/deploy.sh"
+    parser.prog = "./gev up"
     parser.description = "Deploy one SQLite application container with optional outbound proxy and corporate CA"
-    parser.epilog = "Manage services: bash deploy/deploy.sh compose --env-file runtime/local.env ps (or logs, stop, etc.)"
+    parser.epilog = "Manage services: ./gev status, ./gev logs, ./gev stop (see ./gev help)"
     parser.add_argument("--init", action="store_true", help="prepare configuration only, without building or starting services")
     parser.add_argument("--network-file", help="literal proxy/index env file inside runtime/")
     parser.add_argument("--ca-dir", help="directory inside runtime/ containing PEM .crt/.pem certificates")
@@ -97,8 +97,6 @@ def argument_parser():
 
 
 def prepare(args):
-    if args.migrate_sqlite:
-        raise ValueError("Use the original deploy --migrate-sqlite workflow before this SQLite-only deployment")
     target, created = base.prepare(args)
     preserve_workspace_owner(target)
     preserve_workspace_owner(Path("runtime/local-repositories"))

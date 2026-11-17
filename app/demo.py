@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import make_engine
-from .models import Base, PlatformConnection, Project, ProjectMember, ProjectRepository, Repository, SyncJob, User
+from .models import Base, PlatformConnection, Project, ProjectRepository, Repository, SyncJob, User
 from .providers import Repo, PR
 from .models import utc_now
 from .jobs import repository_lock
@@ -74,7 +74,6 @@ def create_demo(settings, *, admin_password, member_password, repositories=3, br
                                             auth_disabled=True, last_error="示例数据：虚构平台已暂停；本地 Git 比较可用。")
             session.add_all([admin, member, project, private, connection])
             session.flush()
-            session.add(ProjectMember(project_id=project.id, user_id=member.id))
             ids = []
             for i in range(1, repositories + 1):
                 meta = DemoProvider().repository(str(i))

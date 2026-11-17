@@ -1,7 +1,7 @@
 from sqlalchemy.exc import OperationalError
 
 
-def test_readiness_probes_database_without_redis(client, app, monkeypatch):
+def test_readiness_probes_database(client, app, monkeypatch):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
@@ -18,6 +18,6 @@ def test_settings_repr_does_not_disclose_deployment_secrets():
     from app.config import Settings
     from cryptography.fernet import Fernet
     key = Fernet.generate_key().decode()
-    settings = Settings(production=False, database_url="postgresql+psycopg://user:database-secret@example.invalid/test",
-                        redis_url="redis://:redis-secret@example.invalid/0", session_secret="session-secret", credential_key=key)
-    assert not any(secret in repr(settings) for secret in ("database-secret", "redis-secret", "session-secret", key))
+    settings = Settings(production=False, database_url="sqlite:////tmp/database-secret.sqlite3",
+                        session_secret="session-secret", credential_key=key)
+    assert not any(secret in repr(settings) for secret in ("database-secret", "session-secret", key))

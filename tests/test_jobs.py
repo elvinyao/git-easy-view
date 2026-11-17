@@ -71,7 +71,7 @@ def test_outbox_is_durable_before_queue_call_and_duplicate_is_one_job(system):
         assert session.get(SyncJob, first.id).history_since is not None
 
 
-def test_queue_outage_and_lost_redis_jobs_recover(system):
+def test_queue_outage_and_lost_deliveries_recover(system):
     system.queue.fail = True
     job = enqueue(system)
     with Session(system.engine) as session:

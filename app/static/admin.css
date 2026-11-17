@@ -23,3 +23,12 @@
 .directory-actions { display: flex; gap: 8px; margin: 12px 0; }
 .directory-list { list-style: none; padding: 0; margin: 0 0 20px; display: grid; gap: 6px; }
 .directory-list button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+
+.onboarding { margin-bottom: 1.25rem; padding: 24px; }
+.onboarding h2 { margin-top: 0; }
+.onboarding-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: .9rem; }
+.onboarding-steps li { display: flex; gap: .75rem; align-items: flex-start; }
+.onboarding-steps li.done strong { text-decoration: line-through; opacity: .65; }
+.onboarding-steps p { margin: .15rem 0 .5rem; }
+.onboarding-mark { flex: none; width: 1.75rem; height: 1.75rem; border-radius: 50%; display: grid; place-items: center; border: 1px solid currentColor; font-weight: 600; font-size: .85rem; }
+.onboarding-steps li.done .onboarding-mark { opacity: .65; }

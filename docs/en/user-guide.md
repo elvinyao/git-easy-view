@@ -30,15 +30,15 @@ The application reads platform APIs, HTTPS Git, or local repositories mounted re
 
 ## 2. Access, permissions, and language
 
-The default local address is [http://127.0.0.1:8766](http://127.0.0.1:8766). Your operator supplies the production address. No accounts are created automatically on first startup; run `seed-local.py` locally to create `demo-admin` and `demo-member` (with passwords in `runtime/demo-access.json`), or run `app.cli create-user --username admin --admin` to create your own administrator (see [Documentation index](../README.md)).
+The default local address is [http://127.0.0.1:8766](http://127.0.0.1:8766). Your operator supplies the production address. The first visit to a new instance opens first-run setup, where you create the first administrator in the browser; a production instance also asks for a setup code from your operator. To explore with examples locally, run `./gev seed` to create `demo-admin` and the read-only `demo-member` (passwords are in `runtime/demo-access.json`; see [Documentation index](../README.md)).
 
 | Visitor | Available actions |
 |---|---|
 | Anonymous | Read all projects, project-linked repositories, branches, commits, relationships, and PR/MR history |
-| Regular account | The same read access as an anonymous visitor |
+| Read-only account | The same read access as an anonymous visitor; signs in to view when “Require sign-in to view” is on |
 | Administrator | Read access plus project, account, token, repository configuration, synchronization, and comparison management |
 
-Project memberships and names such as “administrator only” do not restrict project reading. A repository with no project association is readable only by administrators. Linking a repository publishes its snapshots for anonymous browsing; administrators should confirm the intended audience before importing it.
+By default projects are public and read-only: names such as “administrator only” do not restrict reading. To restrict access, an administrator turns on “Require sign-in to view” under Access control on the admin workbench. Every page then requires signing in, and colleagues who only need to view get read-only accounts. A repository with no project association is readable only by administrators. Linking a repository shows its snapshots to everyone who can view; administrators should confirm the intended audience before importing it.
 
 Choose 中文, 日本語, or English on `/login`. You can then return to the project list without signing in. The browser remembers your choice; other pages do not show a language switcher. Resolution order is the URL `lang` parameter, language cookie, browser language, then Chinese. Repository names, branch names, commit messages, and PR/MR titles remain in their original language. Times are displayed in UTC.
 
@@ -58,6 +58,12 @@ Start with the **repository summary table**. Each row compares the default tip, 
 A page contains up to 50 repositories. Search repository and branch names separately, filter by role or relationship, or show only synchronization needing attention. The default branch remains as comparison context, and matching counts are distinct from totals. The **complete branch lists** start expanded. Use “Collapse all” to close repository sections, then open a heading or summary link as needed. Lists no longer require scrolling inside small panels. Filters and pagination remain shareable in the URL. Deleted branches are omitted.
 
 Click a branch name or hash to open the **detail drawer** without leaving the project. Inspect full names, commit titles, authors, hashes, changed files, comparison targets, and PR/MR evidence. Escape or Close restores your position; Back, Forward, and reload restore selections. Open the full Git workspace from the drawer for history, then use “Back to project” to retain your filters. Relative times have full UTC tooltips. The optional detailed relationship table retains separate pagination without reducing the complete branch lists.
+
+### 3.1 Needs action and unreleased changes
+
+“Needs action”, at the top right of a project page, turns snapshots into conclusions. The number is the count of items to act on, and project cards on the home page show it too. It lists five kinds of item: repositories whose synchronization failed or whose connection is paused; release plans past their planned date and still incomplete; release branches with commits not merged back to main (usually fixes made on the release branch); feature branches whose commits are all contained in main and can be deleted; and branches with no commits for more than 90 days that still have unmerged changes. Each kind shows at most 50 items. Conclusions rely only on the latest synchronized snapshot and do not contact the remote; delete branches and merge on your code platform.
+
+“Unreleased changes” compares each repository's recorded production version with its default main branch and lists the commits on main that are not in production yet (the latest 50 are shown) and the merged PRs/MRs that have not shipped, which works as a draft of release notes. It also warns when production has commits that main lacks, so a fix is not lost in the next release. Repositories without a recorded production version prompt you to record one first.
 
 ## 4. Interpret branch relationships
 
@@ -105,7 +111,7 @@ After import or manual synchronization, progress lists queued, running, complete
 
 ## 7. Administrator setup
 
-Installation creates no accounts. An operator first creates an administrator using the [deployment guide](docker-deployment.md#3-create-an-administrator-or-an-optional-demo), then signs in at `/login`.
+On a new instance you create the administrator on the first visit (see the [deployment guide](docker-deployment.md#3-create-an-administrator-or-an-optional-demo)). The “Set up in three steps” checklist at the top of the admin workbench then walks you through the first steps below and disappears once they are complete.
 
 1. Create a project on `/admin` with a name, unique slug, and description.
 2. Create a GitHub or GitLab connection with its HTTPS instance URL, token, and optional company CA path inside the container.

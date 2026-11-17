@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import re
 import secrets
-from urllib.parse import unquote, urlsplit
 
 
 def positive_seconds(value: str) -> int:
@@ -20,7 +19,7 @@ def positive_seconds(value: str) -> int:
     return seconds
 
 
-def argument_parser(prog="bash deploy/deploy.sh") -> argparse.ArgumentParser:
+def argument_parser(prog="./gev up") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
         description="Prepare configuration, build, migrate and start the Docker stack.",
@@ -30,7 +29,6 @@ def argument_parser(prog="bash deploy/deploy.sh") -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, help="host loopback port for a NEW configuration (local 8766, production 8767)")
     parser.add_argument("--project-name", help="Compose project name for a NEW configuration")
     parser.add_argument("--no-build", action="store_true", help="reuse the existing application image")
-    parser.add_argument("--migrate-sqlite", action="store_true", help="copy the existing bundled PostgreSQL database to SQLite; retain old volumes")
     parser.add_argument("--pull", action="store_true", help="refresh the Python base image when building")
     parser.add_argument("--wait-timeout", type=positive_seconds, default=180, help="health wait per phase, in seconds (default 180)")
     return parser
@@ -73,24 +71,8 @@ def validate(values: dict[str, str], target: Path, args) -> None:
             raise ValueError()
     except (KeyError, ValueError):
         raise ValueError("GEV_CREDENTIAL_KEY must be a valid Fernet key") from None
-    password = values.get("POSTGRES_PASSWORD", "")
-    try:
-        database = urlsplit(values.get("GEV_DATABASE_URL", ""))
-        valid_database = (
-            database.scheme == "postgresql+psycopg"
-            and database.hostname == "postgres"
-            and database.port == 5432
-            and database.username == "gev"
-            and database.path == "/gev"
-            and unquote(database.password or "") == password
-        )
-    except ValueError:
-        valid_database = False
-    sqlite_database = values.get("GEV_DATABASE_URL") == "sqlite:////data/db/gev.sqlite3"
-    if not sqlite_database and not (args.migrate_sqlite and valid_database and password):
-        raise ValueError("Quick deploy requires sqlite:////data/db/gev.sqlite3; upgrade existing PostgreSQL with --migrate-sqlite")
-    if sqlite_database and values.get("GEV_JOB_BACKEND", "database") != "database":
-        raise ValueError("Single-container deployment requires GEV_JOB_BACKEND=database")
+    if values.get("GEV_DATABASE_URL") != "sqlite:////data/db/gev.sqlite3":
+        raise ValueError("Deployment requires GEV_DATABASE_URL=sqlite:////data/db/gev.sqlite3")
     if values.get("GEV_CACHE_ROOT") != "/data/git":
         raise ValueError("Configure GEV_CACHE_ROOT=/data/git")
     if values.get("GEV_ENV_FILE", "./runtime/local.env").removeprefix("./") != target.as_posix():
@@ -141,7 +123,6 @@ def prepare(args) -> tuple[Path, bool]:
             "GEV_DATABASE_URL": "sqlite:////data/db/gev.sqlite3",
             "GEV_SESSION_SECRET": secrets.token_urlsafe(48),
             "GEV_CREDENTIAL_KEY": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
-            "GEV_JOB_BACKEND": "database",
             "GEV_CACHE_ROOT": "/data/git",
             "GEV_PRODUCTION": str(args.production).lower(),
             "GEV_COOKIE_SECURE": str(args.production).lower(),
@@ -169,7 +150,7 @@ def prepare(args) -> tuple[Path, bool]:
     return target, created
 
 
-def main(argv=None, *, prog="bash deploy/deploy.sh") -> int:
+def main(argv=None, *, prog="./gev up") -> int:
     parser = argument_parser(prog)
     args = parser.parse_args(argv)
     try:

@@ -61,7 +61,7 @@ def main() -> int:
     for guide in INTRANET_GUIDES[1:]:
         if commands((ROOT / guide).read_text()) != baseline:
             errors.append(f"{guide}: shell commands differ from the Chinese edition")
-    shell_files = [(".agent/run.sh", "bash"), (".agent/deploy.sh", "sh"), (".agent/compose.sh", "sh")]
+    shell_files = [(".agent/run.sh", "bash"), ("gev", "bash")]
     shell_files += [
         (str(path.relative_to(ROOT)), "bash" if path.name == "deploy.sh" else "sh")
         for path in sorted((ROOT / "deploy").glob("*.sh"))

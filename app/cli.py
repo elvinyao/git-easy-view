@@ -23,6 +23,7 @@ def main(argv=None) -> int:
     create_user.add_argument("--username", required=True)
     create_user.add_argument("--admin", action="store_true")
     create_user.add_argument("--password-env", default="GEV_ADMIN_PASSWORD")
+    commands.add_parser("setup-code", help="Print the code that first-run setup asks for in production")
     args = parser.parse_args(argv)
     settings = Settings()
     engine = make_engine(settings.database_url)
@@ -32,6 +33,15 @@ def main(argv=None) -> int:
                 parser.error("init-db is for development only; use Alembic migrations in production")
             Base.metadata.create_all(engine)
             print("Development database initialized")
+            return 0
+
+        if args.command == "setup-code":
+            from app.first_run import setup_code
+            with Session(engine) as session:
+                if session.scalar(select(User.id).limit(1)) is not None:
+                    print("Setup is already complete; sign in with an existing administrator.")
+                    return 0
+            print(setup_code(settings))
             return 0
 
         if args.command == "demo":

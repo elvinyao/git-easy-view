@@ -1,15 +1,17 @@
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from urllib.parse import urlencode
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.auth import optional_user, require_project_access
+from app.auth import has_users, optional_user, require_project_access
 from app.db import get_session
 from app.job_progress import progress_batch, progress_context
-from app.models import ProjectRepository, Repository, User
+from app.attention import attention_total, project_attention
+from app.models import ProjectRepository, ReleasePlan, Repository, User
 from app.project_overview import repository_overview, snapshot_views
-from app.releases import project_release_summary
+from app.releases import current_production, project_release_summary
+from app.unreleased import repository_unreleased
 from app.web import (
     filtered,
     query_state,
@@ -44,6 +46,8 @@ def home(
     session: Session = Depends(get_session),
 ):
     projects = visible_projects(session, user)
+    if user is None and not projects and not has_users(session):
+        return RedirectResponse("/setup", status_code=303)
     links = session.execute(
         select(ProjectRepository.project_id, Repository)
         .join(Repository, Repository.id == ProjectRepository.repository_id)
@@ -53,8 +57,16 @@ def home(
         session, {repo.id: repo for _, repo in links}.values()
     )
     by_project = {project.id: [] for project in projects}
+    repos_by_project = {project.id: [] for project in projects}
     for project_id, repo in links:
         by_project[project_id].append(statuses[repo.id])
+        repos_by_project[project_id].append(repo)
+    views, _ = snapshot_views(session, list({repo.id: repo for _, repo in links}.values()))
+    plans = active_plans(session, [project.id for project in projects])
+    attention = {
+        pid: attention_total(project_attention(pid, repos, statuses, views, plans.get(pid, ())))
+        for pid, repos in repos_by_project.items()
+    }
     return render(
         request,
         "home.html",
@@ -62,7 +74,64 @@ def home(
         user,
         counts={pid: len(items) for pid, items in by_project.items()},
         summaries={pid: summarize_statuses(items) for pid, items in by_project.items()},
+        attention=attention,
     )
+
+
+def active_plans(session, project_ids):
+    plans = session.scalars(
+        select(ReleasePlan).where(ReleasePlan.project_id.in_(project_ids), ReleasePlan.status == "active")
+        .options(selectinload(ReleasePlan.items)).order_by(ReleasePlan.scheduled_date, ReleasePlan.id)
+    ).all() if project_ids else []
+    result = {}
+    for plan in plans:
+        result.setdefault(plan.project_id, []).append(plan)
+    return result
+
+
+def project_repositories(session, project_id):
+    return session.scalars(
+        select(Repository)
+        .join(ProjectRepository)
+        .where(ProjectRepository.project_id == project_id)
+        .options(selectinload(Repository.connection))
+        .order_by(Repository.full_name)
+    ).all()
+
+
+@router.get("/projects/{project_id}/attention")
+def attention_page(
+    project_id: int,
+    request: Request,
+    user: User | None = Depends(optional_user),
+    session: Session = Depends(get_session),
+):
+    project = require_project_access(session, user, project_id)
+    repos = project_repositories(session, project.id)
+    views, _ = snapshot_views(session, repos)
+    groups = project_attention(project.id, repos, repository_statuses(session, repos), views,
+                               active_plans(session, [project.id]).get(project.id, ()))
+    return render(request, "attention.html", session, user, project=project, groups=groups,
+                  total=attention_total(groups), repository_count=len(repos))
+
+
+@router.get("/projects/{project_id}/unreleased")
+def unreleased_page(
+    project_id: int,
+    request: Request,
+    user: User | None = Depends(optional_user),
+    session: Session = Depends(get_session),
+):
+    project = require_project_access(session, user, project_id)
+    repos = project_repositories(session, project.id)
+    _, defaults = snapshot_views(session, repos)
+    production = current_production(session, project.id)
+    rows = [repository_unreleased(session, request.app.state.settings, repo, defaults.get(repo.id), production.get(repo.id))
+            for repo in repos]
+    rows.sort(key=lambda row: (row.production is None, -(row.ahead or 0), row.repo.full_name))
+    return render(request, "unreleased.html", session, user, project=project, rows=rows,
+                  recorded=sum(row.production is not None for row in rows),
+                  pending=sum(bool(row.ahead) for row in rows))
 
 
 @router.get("/projects/{project_id}")
@@ -85,6 +154,8 @@ def project_page(
     statuses = repository_statuses(session, repos)
     summary = summarize_statuses(statuses.values())
     views, _ = snapshot_views(session, repos)
+    attention_count = attention_total(project_attention(
+        project.id, repos, statuses, views, active_plans(session, [project.id]).get(project.id, ())))
     matches = {repo.id: filtered(views[repo.id], query) for repo in repos}
     if query.get("repo_q"):
         repos = [repo for repo in repos if query["repo_q"].casefold() in repo.full_name.casefold()]
@@ -144,4 +215,5 @@ def project_page(
         branch_urls=branch_urls,
         complete_url=complete_url,
         project_return_path=project_return_path,
+        attention_count=attention_count,
     )

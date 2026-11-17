@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="{{ locale }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ t('初始设置 · Git Easy View') }}</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body class="login-body">
+    <main class="login-card">
+      <span class="brand-mark">g.</span>
+      <h1>{{ t('欢迎，先创建管理员') }}</h1>
+      <p class="muted">{{ t('这是一个全新的实例。创建第一个管理员后，会带你连接仓库并建立第一个项目。') }}</p>
+      {% if error %}<p class="notice danger" role="alert">{{ t(error) }}</p>{% endif %}
+      <form method="post" action="/setup" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>
+          {{ t('用户名') }}
+          <input name="username" value="{{ username }}" autocomplete="username" maxlength="150" required autofocus>
+        </label>
+        <label>
+          {{ t('密码（至少 12 个字符）') }}
+          <input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+        </label>
+        <label>
+          {{ t('再次输入密码') }}
+          <input name="password_confirm" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+        </label>
+        {% if needs_code %}
+        <label>
+          {{ t('设置码') }}
+          <input name="code" autocomplete="off" placeholder="XXXX-XXXX" required>
+          <small class="muted">{{ t('在服务器上运行 ./gev -p setup-code 查看，用来确认你是部署者。') }}</small>
+        </label>
+        {% endif %}
+        <button type="submit" class="primary">{{ t('创建管理员并开始 →') }}</button>
+      </form>
+      {% include 'language_picker.html' %}
+    </main>
+  </body>
+</html>

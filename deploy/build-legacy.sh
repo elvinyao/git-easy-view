@@ -20,7 +20,7 @@ fingerprint=$(deployment_value "$control_file" GEV_CA_FINGERPRINT)
 network=$(deployment_value "$control_file" GEV_BUILD_NETWORK)
 ca=$(deployment_value "$control_file" GEV_BUILD_CA)
 if [ -z "$image" ] || [ -z "$fingerprint" ] || [ -z "$network" ] || [ ! -f "/workspace/$network" ] || [ -z "$ca" ] || [ ! -f "/workspace/$ca" ]; then
-  printf 'Missing build configuration; run bash deploy/deploy.sh --init for this environment.\n' >&2
+  printf 'Missing build configuration; run ./gev up --init for this environment.\n' >&2
   exit 1
 fi
 set -- build --file /workspace/deploy/Dockerfile --tag "$image" \

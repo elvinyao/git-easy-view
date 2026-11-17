@@ -20,36 +20,5 @@
         <button>{{ t('保存项目') }}</button>
       </form>
     </section>
-    <details class="panel">
-      <summary>{{ t('项目成员（可选）') }}</summary>
-      <ul class="admin-list">
-        {% for member in members %}
-          <li>
-            <span>{{ member.username }}</span>
-            <form method="post" action="/admin/projects/{{ project.id }}/members">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="hidden" name="user_id" value="{{ member.id }}">
-              <button name="action" value="revoke">{{ t('移除成员') }}</button>
-            </form>
-          </li>
-        {% else %}
-          <li>{{ t('暂无成员') }}</li>
-        {% endfor %}
-      </ul>
-      <form method="post"
-            action="/admin/projects/{{ project.id }}/members"
-            class="inline-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label>
-          {{ t('添加成员') }}
-          <select name="user_id">
-            {% for person in users %}
-              <option value="{{ person.id }}">{{ person.username }}{{ t('（停用）') if not person.is_active else '' }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <button class="primary" name="action" value="grant">{{ t('添加成员') }}</button>
-      </form>
-    </details>
   </div>
 {% endblock %}

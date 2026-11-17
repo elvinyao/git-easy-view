@@ -42,7 +42,7 @@ HEADLINES = {
         ("*", "zh-CN"),
     ],
 )
-def test_browser_language_negotiation(client, header, locale):
+def test_browser_language_negotiation(client, user, header, locale):
     response = client.get("/login", headers={"Accept-Language": header})
     assert response.status_code == 200
     assert response.headers["content-language"] == locale
@@ -76,7 +76,7 @@ def test_invalid_preferences_are_ignored_and_not_reflected(client):
     assert client.get("/login?lang=invalid", headers={"Accept-Language": "ja"}).headers["content-language"] == "en"
 
 
-def test_language_cookie_uses_production_cookie_security(app, client):
+def test_language_cookie_uses_production_cookie_security(app, client, user):
     app.state.settings.cookie_secure = True
     cookie = client.get("/login?lang=ja").headers.get_list("set-cookie")
     preference = next(value for value in cookie if value.startswith(LOCALE_COOKIE + "="))
@@ -84,7 +84,7 @@ def test_language_cookie_uses_production_cookie_security(app, client):
     assert "SameSite=lax" in preference and "Path=/" in preference
 
 
-def test_concurrent_requests_do_not_share_language(app):
+def test_concurrent_requests_do_not_share_language(app, user):
     def read(locale):
         with TestClient(app) as separate:
             response = separate.get("/login", headers={"Accept-Language": locale})
@@ -244,6 +244,7 @@ def test_catalog_covers_visible_templates_and_dynamic_messages():
         "app/routes/repositories.py", "app/routes/projects.py", "app/git_workspace.py",
         "app/project_overview.py", "app/job_progress.py",
         "app/routes/releases.py", "app/releases.py", "app/release_forms.py",
+        "app/attention.py", "app/unreleased.py", "app/first_run.py",
     ):
         tree = ast.parse(Path(path).read_text())
         sources.update(

@@ -11,7 +11,6 @@ from app.models import (
     Comparison,
     PlatformConnection,
     Project,
-    ProjectMember,
     ProjectRepository,
     PullRequest,
     Repository,
@@ -55,7 +54,6 @@ def pages(app, client, user, tmp_path):
         s.flush()
         s.add_all(
             [
-                ProjectMember(project_id=project.id, user_id=user.id),
                 ProjectRepository(project_id=project.id, repository_id=repo.id),
             ]
         )
@@ -215,7 +213,7 @@ def post_form(client, path, **fields):
     return client.post(path, data=fields, follow_redirects=False)
 
 
-def test_admin_user_project_membership_flow(client, app, admin_pages):
+def test_admin_user_flow_without_project_membership(client, app, admin_pages):
     assert client.get("/admin/users/new").status_code == 200
     assert (
         post_form(
@@ -240,29 +238,10 @@ def test_admin_user_project_membership_flow(client, app, admin_pages):
     )
     project = admin_pages["project"]
     assert client.get(f"/admin/projects/{project}").status_code == 200
-    assert (
-        post_form(
-            client, f"/admin/projects/{project}/members", user_id=bid, action="grant"
-        ).status_code
-        == 303
-    )
-    assert (
-        post_form(
-            client, f"/admin/projects/{project}/members", user_id=bid, action="revoke"
-        ).status_code
-        == 303
-    )
+    assert post_form(client, f"/admin/projects/{project}/members", user_id=bid, action="grant").status_code in (404, 405)
     with Session(app.state.engine) as s:
-        assert (
-            s.scalar(
-                select(ProjectMember).where(
-                    ProjectMember.project_id == project, ProjectMember.user_id == bid
-                )
-            )
-            is None
-        )
         assert s.scalar(select(User).where(User.id == bid)).is_admin
-        assert s.query(AuditEvent).count() >= 4
+        assert s.query(AuditEvent).count() >= 2
 
 
 class ProviderFixture:
@@ -890,11 +869,12 @@ def test_sync_status_batches_connections_and_shows_threshold_floor(client, app, 
     event.listen(app.state.engine, "before_cursor_execute", observe)
     try:
         assert client.get("/").status_code == 200
-        assert len(statements) <= 6
+        # Attention totals add three snapshot queries and one release-plan query, independent of project count.
+        assert len(statements) <= 9
         statements.clear()
         assert client.get(f"/projects/{pages['project']}").status_code == 200
         # Production history and release plans each add one project-wide query.
-        assert len(statements) <= 12
+        assert len(statements) <= 13
     finally:
         event.remove(app.state.engine, "before_cursor_execute", observe)
     assert (

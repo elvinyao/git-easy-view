@@ -12,7 +12,7 @@ def utc_now() -> datetime:
 
 
 class UTCDateTime(TypeDecorator):
-    """Round-trip aware UTC values on both PostgreSQL and SQLite."""
+    """Round-trip aware UTC values; SQLite stores naive timestamps."""
 
     impl = DateTime(timezone=True)
     cache_ok = True
@@ -47,7 +47,6 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
-    memberships: Mapped[list["ProjectMember"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     def set_password(self, password: str) -> None:
         self.password_hash = _password_hasher.hash(password)
@@ -66,18 +65,14 @@ class Project(Base):
     slug: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
-    members: Mapped[list["ProjectMember"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     repositories: Mapped[list["ProjectRepository"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
-class ProjectMember(Base):
-    __tablename__ = "project_members"
-    __table_args__ = (UniqueConstraint("project_id", "user_id"),)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    project: Mapped[Project] = relationship(back_populates="members")
-    user: Mapped[User] = relationship(back_populates="memberships")
+class AppSetting(Base):
+    """Instance-wide switches an administrator changes in the browser."""
+    __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
 
 class PlatformConnection(Base):

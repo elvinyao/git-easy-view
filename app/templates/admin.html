@@ -5,6 +5,27 @@
   <header class="page-heading">
     <h1>{{ t('管理工作台') }}</h1>
   </header>
+  {% if onboarding %}
+  <section class="panel onboarding" aria-labelledby="onboarding-heading">
+    <h2 id="onboarding-heading">{{ t('三步完成配置') }}</h2>
+    <ol class="onboarding-steps">
+      {% set current = namespace(found=false) %}
+      {% for step in onboarding %}
+      <li class="{{ 'done' if step.done else '' }}">
+        <span class="onboarding-mark" aria-hidden="true">{{ '✓' if step.done else loop.index }}</span>
+        <div>
+          <strong>{{ t(step.title) }}</strong>{% if step.done %} <span class="muted">{{ t('已完成') }}</span>{% endif %}
+          <p class="muted">{{ t(step.hint) }}</p>
+          {% if not step.done and not current.found %}{% set current.found = true %}
+            {% if step.href %}<a class="button primary" href="{{ step.href }}">{{ t(step.title) }} →</a>
+            {% else %}<span class="muted">{{ t('先完成上面的步骤。') }}</span>{% endif %}
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
   <div class="admin-grid">
     <section class="panel">
       <h2>{{ t('项目') }}</h2>
@@ -57,6 +78,19 @@
         {% endfor %}
       </ul>
       <a class="button" href="/admin/users/new">{{ t('创建用户') }}</a>
+      <p class="muted">{{ t('非管理员账号只能查看；只有开启“登录后才能查看”时才需要创建。') }}</p>
+    </section>
+    <section class="panel">
+      <h2>{{ t('访问控制') }}</h2>
+      <form method="post" action="/admin/settings/access" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="check-row">
+          <input type="checkbox" name="require_login" {% if require_login %}checked{% endif %}>
+          {{ t('登录后才能查看') }}
+        </label>
+        <p class="muted">{{ t('关闭时，能打开此地址的任何人都可以只读查看项目、分支和提交信息。开启后，所有页面都需要先登录。') }}</p>
+        <button>{{ t('保存访问设置') }}</button>
+      </form>
     </section>
     <section class="panel">
       <h2>{{ t('仓库配置') }}</h2>
